@@ -1,0 +1,29 @@
+{
+    "delay_1": {
+        "behavior": "delay",
+        "delay": 1,
+        "desc": "one-step delayed imitation of the target command"
+    },
+    "delay_2": {
+        "behavior": "delay",
+        "delay": 2,
+        "desc": "two-step delayed imitation of the target command"
+    },
+    "invert": {
+        "behavior": "invert",
+        "desc": "opposite-direction imitation of the target command"
+    },
+    "axis_swap": {
+        "behavior": "axis_swap",
+        "desc": "joint-axis swapped imitation, using the shoulder command on the elbow and the elbow command on the shoulder"
+    },
+    "random": {
+        "behavior": "random",
+        "desc": "random motor commands sampled independently of the target command"
+    },
+    "smooth": {
+        "behavior": "smooth",
+        "alpha": 0.45,
+        "desc": "smoothed imitation that only partially follows the latest target command"
+    }
+}

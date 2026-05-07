@@ -1,0 +1,32 @@
+{
+    "procedural_2link_arm": {
+        "root": "procedural",
+        "desc": "a visually identical two-link industrial robotic arm with shoulder and elbow joints",
+        "link_lengths": [0.62, 0.52],
+        "link_thickness": 0.08,
+        "base_size": [0.24, 0.24, 0.16],
+        "wrist_size": [0.13, 0.13, 0.13],
+        "initial_joints_deg": [12.0, -32.0],
+        "joint_limits_deg": [[-55.0, 60.0], [-80.0, 75.0]],
+        "command_step_deg": 8.0,
+        "base_color": [0.17, 0.17, 0.17],
+        "link_color": [0.86, 0.74, 0.22],
+        "joint_color": [0.08, 0.10, 0.12],
+        "wrist_color": [0.95, 0.95, 0.95]
+    },
+    "procedural_blue_arm": {
+        "root": "procedural",
+        "desc": "a visually identical two-link laboratory robotic arm with shoulder and elbow joints",
+        "link_lengths": [0.60, 0.50],
+        "link_thickness": 0.075,
+        "base_size": [0.24, 0.24, 0.16],
+        "wrist_size": [0.12, 0.12, 0.12],
+        "initial_joints_deg": [8.0, -28.0],
+        "joint_limits_deg": [[-55.0, 60.0], [-80.0, 75.0]],
+        "command_step_deg": 7.5,
+        "base_color": [0.16, 0.16, 0.18],
+        "link_color": [0.20, 0.46, 0.80],
+        "joint_color": [0.06, 0.07, 0.09],
+        "wrist_color": [0.90, 0.93, 0.96]
+    }
+}

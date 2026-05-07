@@ -1,0 +1,68 @@
+{
+    "triad_delay_invert": {
+        "track": "Robot",
+        "arm": "procedural_2link_arm",
+        "num_arms": 3,
+        "target_index": null,
+        "layout_spacing": 1.15,
+        "episode_steps": 8,
+        "seed": 13,
+        "distractors": ["delay_1", "invert"],
+        "command_sequence": [
+            {"name": "shoulder_up", "delta": [1, 0]},
+            {"name": "elbow_fold", "delta": [0, 1]},
+            {"name": "shoulder_down", "delta": [-1, 0]},
+            {"name": "elbow_extend", "delta": [0, -1]},
+            {"name": "both_up_fold", "delta": [1, 1]},
+            {"name": "shoulder_down_elbow_fold", "delta": [-1, 1]},
+            {"name": "shoulder_up_elbow_extend", "delta": [1, -1]},
+            {"name": "both_down_extend", "delta": [-1, -1]}
+        ]
+    },
+    "quad_delay_swap_random": {
+        "track": "Robot",
+        "arm": "procedural_2link_arm",
+        "num_arms": 4,
+        "target_index": null,
+        "layout_spacing": 0.95,
+        "episode_steps": 10,
+        "seed": 29,
+        "distractors": ["delay_1", "axis_swap", "random"],
+        "command_sequence": [
+            {"name": "shoulder_up", "delta": [1, 0]},
+            {"name": "shoulder_up_elbow_fold", "delta": [1, 1]},
+            {"name": "elbow_extend", "delta": [0, -1]},
+            {"name": "shoulder_down", "delta": [-1, 0]},
+            {"name": "elbow_fold", "delta": [0, 1]},
+            {"name": "shoulder_down_elbow_extend", "delta": [-1, -1]},
+            {"name": "shoulder_up_elbow_extend", "delta": [1, -1]},
+            {"name": "elbow_fold", "delta": [0, 1]},
+            {"name": "shoulder_down_elbow_fold", "delta": [-1, 1]},
+            {"name": "shoulder_up", "delta": [1, 0]}
+        ]
+    },
+    "quint_all_distractors": {
+        "track": "Robot",
+        "arm": "procedural_blue_arm",
+        "num_arms": 5,
+        "target_index": null,
+        "layout_spacing": 0.78,
+        "episode_steps": 12,
+        "seed": 47,
+        "distractors": ["delay_1", "delay_2", "invert", "smooth"],
+        "command_sequence": [
+            {"name": "shoulder_up", "delta": [1, 0]},
+            {"name": "elbow_fold", "delta": [0, 1]},
+            {"name": "shoulder_up_elbow_fold", "delta": [1, 1]},
+            {"name": "shoulder_down", "delta": [-1, 0]},
+            {"name": "elbow_extend", "delta": [0, -1]},
+            {"name": "shoulder_down_elbow_extend", "delta": [-1, -1]},
+            {"name": "shoulder_up", "delta": [1, 0]},
+            {"name": "shoulder_up_elbow_extend", "delta": [1, -1]},
+            {"name": "shoulder_down_elbow_fold", "delta": [-1, 1]},
+            {"name": "elbow_fold", "delta": [0, 1]},
+            {"name": "shoulder_down", "delta": [-1, 0]},
+            {"name": "both_up_fold", "delta": [1, 1]}
+        ]
+    }
+}
