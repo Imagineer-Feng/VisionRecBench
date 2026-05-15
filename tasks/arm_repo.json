@@ -28,5 +28,27 @@
         "link_color": [0.20, 0.46, 0.80],
         "joint_color": [0.06, 0.07, 0.09],
         "wrist_color": [0.90, 0.93, 0.96]
+    },
+    "panda_arm": {
+        "root": "panda",
+        "asset_path": "isaac://Isaac/Robots/Franka/franka_alt_fingers.usd",
+        "desc": "a Franka Panda robotic arm loaded from the Isaac Sim robot asset library",
+        "link_lengths": [0.62, 0.52],
+        "base_size": [0.24, 0.24, 0.16],
+        "wrist_size": [0.13, 0.13, 0.13],
+        "initial_joint_positions": [0.0, -0.55, 0.0, -2.35, 0.0, 1.9, 0.75, 0.035, 0.035],
+        "joint_limits": [
+            [-2.8973, 2.8973],
+            [-1.7628, 1.7628],
+            [-2.8973, 2.8973],
+            [-3.0718, -0.0698],
+            [-2.8973, 2.8973],
+            [-0.0175, 3.7525],
+            [-2.8973, 2.8973],
+            [0.0, 0.04],
+            [0.0, 0.04]
+        ],
+        "command_step": 0.12,
+        "control_joints": ["panda_joint2", "panda_joint4"]
     }
 }

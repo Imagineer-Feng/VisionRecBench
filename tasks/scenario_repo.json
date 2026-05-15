@@ -19,6 +19,43 @@
             {"name": "both_down_extend", "delta": [-1, -1]}
         ]
     },
+    "triad_panda_delay_invert": {
+        "track": "Robot",
+        "arm": "panda_arm",
+        "num_arms": 3,
+        "target_index": null,
+        "layout_spacing": 1.45,
+        "floor_width": 5.5,
+        "floor_depth": 2.8,
+        "floor_color": [0.48, 0.51, 0.52],
+        "floor_roughness": 0.72,
+        "background_color": [0.68, 0.72, 0.76],
+        "ambient_light_intensity": 0.45,
+        "key_light_intensity": 6200.0,
+        "key_light_angle": 0.75,
+        "key_light_rotation": [-48.0, 0.0, 28.0],
+        "dome_light_intensity": 1250.0,
+        "dome_light_color": [0.86, 0.90, 0.96],
+        "fill_light_intensity": 2600.0,
+        "fill_light_radius": 4.0,
+        "fill_light_position": [0.0, -2.4, 2.3],
+        "camera_eye": [0.0, -4.8, 2.2],
+        "camera_target": [0.0, 0.04, 0.70],
+        "camera_focal": 2.2,
+        "episode_steps": 8,
+        "seed": 13,
+        "distractors": ["delay_1", "invert"],
+        "command_sequence": [
+            {"name": "shoulder_up", "delta": [1, 0]},
+            {"name": "elbow_fold", "delta": [0, 1]},
+            {"name": "shoulder_down", "delta": [-1, 0]},
+            {"name": "elbow_extend", "delta": [0, -1]},
+            {"name": "both_up_fold", "delta": [1, 1]},
+            {"name": "shoulder_down_elbow_fold", "delta": [-1, 1]},
+            {"name": "shoulder_up_elbow_extend", "delta": [1, -1]},
+            {"name": "both_down_extend", "delta": [-1, -1]}
+        ]
+    },
     "quad_delay_swap_random": {
         "track": "Robot",
         "arm": "procedural_2link_arm",
