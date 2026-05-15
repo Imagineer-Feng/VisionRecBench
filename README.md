@@ -64,19 +64,17 @@ $ISAACSIM_ROOT/python.sh scripts/inference.py \
   --headless
 ```
 
-For Isaac Sim 4.5 on newer GPUs, the default renderer is `RayTracedLighting` instead of path tracing. If startup reaches "app ready" and then appears stuck, try a lighter debug run:
+Franka Panda arm scenario:
 
 ```shell
-python scripts/inference.py \
-  --scenario triad_delay_invert \
+$ISAACSIM_ROOT/python.sh scripts/inference.py \
+  --scenario triad_panda_delay_invert \
   --level 1 \
   --model random \
-  --headless \
-  --max_steps 1 \
-  --resolution 512 \
-  --warmup_frames 2 \
-  --render_frames 1
+  --headless
 ```
+
+The default run uses `PathTracing`, 1024x1024 observations, 16 samples per pixel, and enough render frames for the camera buffer to settle. This is intentionally slower than the old fast defaults because it avoids the noisy, blurry `RayTracedLighting` output.
 
 Isaac Sim may spend one or two minutes after `app ready` compiling shaders and initializing render buffers, especially on the first run in a fresh environment. The many `omni.isaac.* has been deprecated` warnings are emitted by Isaac Sim extensions and are not VisionRecBench errors. A healthy run eventually prints per-step progress and writes outputs to `logs/` and `results/`.
 

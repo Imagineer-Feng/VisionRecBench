@@ -17,6 +17,7 @@ from source.action import options_string
 from source.agent import create_identifier
 from source.preprocess import construct
 from source.prompts import PROMPTS
+from source.render_config import RENDER_CONFIG
 
 
 INSTRUCTION_DICT = {
@@ -38,27 +39,11 @@ def parse_args():
     parser.add_argument("--target_index", type=int, default=None, help="Optional 1-based target candidate index")
     parser.add_argument("--seed", type=int, default=None, help="Override the scenario random seed")
     parser.add_argument("--headless", action="store_true", help="Run Isaac Sim in headless mode")
-    parser.add_argument(
-        "--renderer",
-        type=str,
-        default="RayTracedLighting",
-        choices=["RayTracedLighting", "PathTracing"],
-        help="Isaac Sim renderer. RayTracedLighting is faster and safer on newer GPUs.",
-    )
-    parser.add_argument("--resolution", type=int, default=768, help="Square camera resolution in pixels")
-    parser.add_argument("--warmup_frames", type=int, default=12, help="Rendered frames during reset")
-    parser.add_argument("--render_frames", type=int, default=6, help="Rendered frames per motor command")
     args = parser.parse_args()
     if args.max_steps == 0 or args.max_steps < -1:
         parser.error("--max_steps must be -1 or a positive integer")
     if args.max_image_history < 0:
         parser.error("--max_image_history must be non-negative")
-    if args.resolution <= 0:
-        parser.error("--resolution must be positive")
-    if args.warmup_frames <= 0:
-        parser.error("--warmup_frames must be positive")
-    if args.render_frames <= 0:
-        parser.error("--render_frames must be positive")
     return args
 
 
@@ -79,6 +64,9 @@ def build_task(args):
         task_dict["seed"] = args.seed
     if args.target_index is not None:
         task_dict["target_index"] = args.target_index
+    task_dict["anti_aliasing_op"] = RENDER_CONFIG["anti_aliasing"]
+    task_dict["pathtracing_spp"] = RENDER_CONFIG["pathtracing_spp"]
+    task_dict["denoiser_enabled"] = RENDER_CONFIG["denoiser"]
     return task_dict
 
 
@@ -257,10 +245,13 @@ def save_args(args_file, args, task_dict, env, max_steps):
                 "max_image_history": args.max_image_history,
                 "seed": task_dict.get("seed"),
                 "target_index": env.target_index,
-                "renderer": args.renderer,
-                "resolution": args.resolution,
-                "warmup_frames": args.warmup_frames,
-                "render_frames": args.render_frames,
+                "renderer": RENDER_CONFIG["renderer"],
+                "resolution": RENDER_CONFIG["resolution"],
+                "warmup_frames": RENDER_CONFIG["warmup_frames"],
+                "render_frames": RENDER_CONFIG["render_frames"],
+                "anti_aliasing": RENDER_CONFIG["anti_aliasing"],
+                "pathtracing_spp": RENDER_CONFIG["pathtracing_spp"],
+                "denoiser": RENDER_CONFIG["denoiser"],
                 "candidates": env.candidates,
             },
             f,
@@ -323,9 +314,11 @@ def run_inference(args):
     simulation_app = SimulationApp(
         {
             "headless": args.headless,
-            "renderer": args.renderer,
-            "width": args.resolution,
-            "height": args.resolution,
+            "renderer": RENDER_CONFIG["renderer"],
+            "width": RENDER_CONFIG["resolution"],
+            "height": RENDER_CONFIG["resolution"],
+            "anti_aliasing": RENDER_CONFIG["anti_aliasing"],
+            "denoiser": RENDER_CONFIG["denoiser"],
         }
     )
     progress("Isaac Sim is ready; importing environment")
@@ -338,10 +331,6 @@ def run_inference(args):
         env = VisionRecBenchEnv(
             simulation_app,
             task_dict,
-            renderer=args.renderer,
-            resolution=(args.resolution, args.resolution),
-            warmup_frames=args.warmup_frames,
-            render_frames=args.render_frames,
         )
         progress("resetting scene and rendering initial observation")
         initial_obs = env.reset()
