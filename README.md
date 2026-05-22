@@ -1,10 +1,10 @@
 # VisionRecBench: Visual Self-Recognition with Mimic Robot Arms
 
-VisionRecBench is a standalone Isaac Sim benchmark for embodied self-recognition. It now supports three experimental levels:
+VisionRecBench is a standalone Isaac Sim benchmark for embodied self-recognition. The standard benchmark scenarios use a Franka Panda robotic arm loaded from the Isaac Sim asset library instead of the earlier simple procedural arm. It now supports three scenes:
 
-- Experiment level 1: one visible arm, binary self/non-self judgment. The arm either follows the motor command directly or moves with random independent commands.
-- Experiment level 2: one visible arm under a fixed scrambled action-space mapping. A repeated fixed command can produce a stable but non-standard action, which should still be recognized as self-motion.
-- Experiment level 3: the original multi-arm visual self-recognition task. One candidate arm is the target agent's own arm; the other candidates imitate the target through delayed, inverted, shuffled, smoothed, or random motor commands.
+- Scene 1: one visible arm, binary self/non-self judgment. The arm either follows the motor command directly or moves with random independent commands.
+- Scene 2: one visible arm under a fixed scrambled action-space mapping. A repeated fixed command can produce a stable but non-standard action, which should still be recognized as self-motion.
+- Scene 3: the original multi-arm visual self-recognition task. One candidate arm is the target agent's own arm; the other candidates imitate the target through delayed, inverted, shuffled, smoothed, or random motor commands.
 
 The agent receives:
 
@@ -22,12 +22,12 @@ VisionRecBench/
   source/
     action.py               # candidate answer schema
     agent.py                # OpenAI-compatible and random candidate identifiers
-    env.py                  # Isaac Sim multi-arm environment and Panda/USD loading
+    env.py                  # Isaac Sim environment and Panda/USD loading
     preprocess.py           # scenario/config loading
     prompts.py              # prompt difficulty levels 0-3
     render_config.py        # fixed renderer, resolution, and sampling settings
   tasks/
-    arm_repo.json           # procedural and Panda arm definitions
+    arm_repo.json           # arm definitions; standard scenarios use panda_arm
     distractor_repo.json    # mimic behavior definitions
     scenario_repo.json      # benchmark scenarios
   scripts/
@@ -55,43 +55,45 @@ $ISAACSIM_ROOT/python.sh -m pip install openai==1.79.0
 
 `--scenario` selects the experimental condition. `--level` selects the prompt difficulty level from 0 to 3.
 
-Experiment level 1, direct self arm:
+Scene 1, direct self arm:
 
 ```shell
 cd VisionRecBench
 $ISAACSIM_ROOT/python.sh scripts/inference.py \
-  --scenario level1_single_direct \
+  --scenario scene1_single_direct \
   --level 1 \
   --model gpt-4o \
   --headless
 ```
 
-Experiment level 1, random non-self arm:
+Scene 1, random non-self arm:
 
 ```shell
 $ISAACSIM_ROOT/python.sh scripts/inference.py \
-  --scenario level1_single_random \
+  --scenario scene1_single_random \
   --level 1 \
   --model gpt-4o \
   --headless
 ```
 
-Experiment level 2, fixed scrambled action-space mapping:
+You can also use `scene1_single_direct_or_random` to sample either the direct self case or the random non-self case from the scenario seed.
+
+Scene 2, fixed scrambled action-space mapping:
 
 ```shell
 $ISAACSIM_ROOT/python.sh scripts/inference.py \
-  --scenario level2_single_scrambled_fixed \
+  --scenario scene2_single_scrambled_fixed \
   --level 1 \
   --model gpt-4o \
   --headless
 ```
 
-Experiment level 3, original three-arm task:
+Scene 3, original three-arm task:
 
 ```shell
 cd VisionRecBench
 $ISAACSIM_ROOT/python.sh scripts/inference.py \
-  --scenario triad_delay_invert \
+  --scenario scene3_triad_delay_invert \
   --level 1 \
   --model gpt-4o \
   --headless
@@ -101,17 +103,7 @@ Random baseline:
 
 ```shell
 $ISAACSIM_ROOT/python.sh scripts/inference.py \
-  --scenario level1_single_direct \
-  --level 1 \
-  --model random \
-  --headless
-```
-
-Franka Panda arm scenario:
-
-```shell
-$ISAACSIM_ROOT/python.sh scripts/inference.py \
-  --scenario triad_panda_delay_invert \
+  --scenario scene1_single_direct \
   --level 1 \
   --model random \
   --headless
@@ -123,9 +115,9 @@ The default run uses `PathTracing`, 1024x1024 observations, 16 samples per pixel
 
 `scripts/inference.py` accepts these runtime options:
 
-- `--scenario`: scenario name from `tasks/scenario_repo.json`, default `triad_delay_invert`.
-- `--arm`: optional arm definition override from `tasks/arm_repo.json`.
-- `--level`: prompt difficulty level, one of `0`, `1`, `2`, or `3`, default `1`. This is separate from the scenario's `experiment_level`.
+- `--scenario`: scenario name from `tasks/scenario_repo.json`, default `scene3_triad_delay_invert`.
+- `--arm`: advanced arm definition override from `tasks/arm_repo.json`. Standard benchmark scenarios are configured to use `panda_arm`.
+- `--level`: prompt difficulty level, one of `0`, `1`, `2`, or `3`, default `1`. This is separate from the scenario's `scene`.
 - `--model`: model name to evaluate, or `random` for the random baseline. This option is required.
 - `--max_steps`: maximum episode steps. Use `-1` for the scenario default; default `-1`.
 - `--max_image_history`: number of previous observations included in the prompt, default `4`.
@@ -145,14 +137,14 @@ chmod +x scripts/evaluate.sh
 ./scripts/evaluate.sh gpt-4o 1
 ```
 
-Each run writes observations and logs to `logs/<timestamp>/` and metrics to `results/experiment_level*/prompt_level*/<model>/<scenario>/`.
+Each run writes observations and logs to `logs/<timestamp>/` and metrics to `results/scene*/prompt_level*/<model>/<scenario>/`.
 
 ## Metrics
 
 The result JSON reports:
 
 - `accuracy`: fraction of episode steps where the model selected the correct answer option,
-- `experiment_level`: scenario-level task family, independent of prompt difficulty,
+- `scene`: scene task family, independent of prompt difficulty,
 - `task_mode`: `single_binary` or `multi_arm`,
 - `answer_index` and `answer_options`: the answer option used for scoring,
 - `target_present`: for single-arm binary tasks, whether the visible arm is truly self,

@@ -30,8 +30,16 @@ INSTRUCTION_DICT = {
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scenario", type=str, default="triad_delay_invert")
-    parser.add_argument("--arm", type=str, default=None)
+    parser.add_argument("--scenario", type=str, default="scene3_triad_delay_invert")
+    parser.add_argument(
+        "--arm",
+        type=str,
+        default=None,
+        help=(
+            "Advanced arm override from tasks/arm_repo.json. "
+            "Standard benchmark scenarios are configured to use panda_arm."
+        ),
+    )
     parser.add_argument("--level", type=int, choices=[0, 1, 2, 3], default=1)
     parser.add_argument("--model", type=str, required=True, help="Model name to use, or random")
     parser.add_argument("--max_steps", type=int, default=-1, help="Maximum episode steps, -1 for scenario default")
@@ -72,11 +80,11 @@ def build_task(args):
 
 def create_run_paths(args, task_dict, tag):
     model_name = args.model.replace("/", "-")
-    experiment_level = task_dict.get("experiment_level", 3)
+    scene = task_dict.get("scene", 3)
     result_dir = (
         BASE_DIR
         / "results"
-        / f"experiment_level{experiment_level}"
+        / f"scene{scene}"
         / f"prompt_level{args.level}"
         / model_name
         / args.scenario
@@ -111,9 +119,9 @@ def get_answer_options(task_dict):
 def build_prompt_context(task_dict):
     num_arms = int(task_dict["num_arms"])
     task_mode = task_dict.get("task_mode", "multi_arm")
-    experiment_level = int(task_dict.get("experiment_level", 3))
+    scene = int(task_dict.get("scene", 3))
 
-    if task_mode == "single_binary" and experiment_level == 1:
+    if task_mode == "single_binary" and scene == 1:
         task_setup = (
             "You observe one visible robotic arm in an Isaac Sim scene. "
             "The visible arm may be your own body, or it may be a non-self arm "
@@ -140,7 +148,7 @@ def build_prompt_context(task_dict):
             "4. Choose yes if the motion is command-caused; otherwise choose no."
         )
         answer_note = "- Option 1 means the visible arm is yourself; option 2 means it is not yourself."
-    elif task_mode == "single_binary" and experiment_level == 2:
+    elif task_mode == "single_binary" and scene == 2:
         task_setup = (
             "You observe one visible robotic arm while the action space is scrambled. "
             "There is a fixed hidden mapping between motor-command axes and physical joint motion. "
@@ -361,7 +369,7 @@ def save_args(args_file, args, task_dict, env, max_steps):
             {
                 "scenario": args.scenario,
                 "track": task_dict["track"],
-                "experiment_level": task_dict.get("experiment_level", 3),
+                "scene": task_dict.get("scene", 3),
                 "task_mode": task_dict.get("task_mode", "multi_arm"),
                 "arm": args.arm,
                 "arm_desc": task_dict["arm"]["desc"],
@@ -419,7 +427,7 @@ def calculate_metrics(tag, task_dict, env, predictions, bad_response_count):
         "tag": tag,
         "scenario": task_dict["name"],
         "track": task_dict["track"],
-        "experiment_level": task_dict.get("experiment_level", 3),
+        "scene": task_dict.get("scene", 3),
         "task_mode": task_dict.get("task_mode", "multi_arm"),
         "target_index": env.target_index,
         "target_present": env.target_present,
