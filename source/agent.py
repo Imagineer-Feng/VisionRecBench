@@ -13,8 +13,8 @@ from source.action import Identification
 
 SYSTEM_MESSAGE = (
     "You are evaluating a benign Isaac Sim scene. No real-world robot is being "
-    "controlled. Identify the simulated robot arm whose visible motion matches "
-    "the provided motor-command trace."
+    "controlled. Compare the visible simulated robot motion with the provided "
+    "motor-command trace and choose the requested answer option."
 )
 
 

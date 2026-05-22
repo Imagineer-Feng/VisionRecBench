@@ -70,9 +70,17 @@ def build_task(args):
     return task_dict
 
 
-def create_run_paths(args, tag):
+def create_run_paths(args, task_dict, tag):
     model_name = args.model.replace("/", "-")
-    result_dir = BASE_DIR / "results" / f"level{args.level}" / model_name / args.scenario
+    experiment_level = task_dict.get("experiment_level", 3)
+    result_dir = (
+        BASE_DIR
+        / "results"
+        / f"experiment_level{experiment_level}"
+        / f"prompt_level{args.level}"
+        / model_name
+        / args.scenario
+    )
     result_dir.mkdir(parents=True, exist_ok=True)
 
     log_dir = BASE_DIR / "logs" / tag
@@ -91,23 +99,139 @@ def create_run_paths(args, tag):
     }
 
 
+def get_answer_options(task_dict):
+    if "answer_options" in task_dict:
+        return list(task_dict["answer_options"])
+    return [
+        f"candidate arm {i} from left to right"
+        for i in range(1, int(task_dict["num_arms"]) + 1)
+    ]
+
+
+def build_prompt_context(task_dict):
+    num_arms = int(task_dict["num_arms"])
+    task_mode = task_dict.get("task_mode", "multi_arm")
+    experiment_level = int(task_dict.get("experiment_level", 3))
+
+    if task_mode == "single_binary" and experiment_level == 1:
+        task_setup = (
+            "You observe one visible robotic arm in an Isaac Sim scene. "
+            "The visible arm may be your own body, or it may be a non-self arm "
+            "that moves independently. Your job is to decide whether the visible "
+            "arm is yourself by comparing the camera images with the motor command."
+        )
+        short_task_setup = "Decide whether the one visible robotic arm is yourself."
+        behavior_summary = task_dict.get(
+            "behavior_family_desc",
+            (
+                "- Self case: the visible arm follows the current motor command directly.\n"
+                "- Non-self case: the visible arm samples random motor commands independently."
+            ),
+        )
+        behavior_rules = (
+            "- Choose yes only when the visible arm's motion matches the listed command stream.\n"
+            "- Choose no when the visible motion is random, independent, or inconsistent with the command stream.\n"
+            "- A single static pose is not enough; use the motion-difference image and command history."
+        )
+        reasoning_steps = (
+            "1. Inspect the motion-difference image for the one visible arm.\n"
+            "2. Compare the observed shoulder and elbow motion with the current command.\n"
+            "3. Use the recent command history to reject random or inconsistent motion.\n"
+            "4. Choose yes if the motion is command-caused; otherwise choose no."
+        )
+        answer_note = "- Option 1 means the visible arm is yourself; option 2 means it is not yourself."
+    elif task_mode == "single_binary" and experiment_level == 2:
+        task_setup = (
+            "You observe one visible robotic arm while the action space is scrambled. "
+            "There is a fixed hidden mapping between motor-command axes and physical joint motion. "
+            "Because of this remapping, a command may cause a different joint to move than its normal label suggests. "
+            "The key question is whether repeated fixed motor commands reliably cause a stable mapped action, "
+            "which should still count as your own body."
+        )
+        short_task_setup = (
+            "Decide whether the one visible arm is yourself under a fixed scrambled action-space mapping."
+        )
+        behavior_summary = task_dict.get(
+            "behavior_family_desc",
+            (
+                "- Self case: the visible arm uses a stable scrambled mapping from commands to physical joints.\n"
+                "- A direct command-to-joint mismatch is allowed if the mismatch is fixed and repeatable."
+            ),
+        )
+        behavior_rules = (
+            "- Do not reject the arm only because the observed joint differs from the command label.\n"
+            "- Under a scrambled action space, the same command should repeatedly produce the same mapped motion.\n"
+            "- Choose yes when the repeated fixed command appears to control the arm through a stable mapping."
+        )
+        reasoning_steps = (
+            "1. Inspect how the arm changes after each repeated fixed command.\n"
+            "2. Check whether the response is stable across repetitions.\n"
+            "3. Treat a fixed command-to-action remapping as self-motion, even if it is not the normal mapping.\n"
+            "4. Choose no only if the motion looks independent or unstable rather than consistently mapped."
+        )
+        answer_note = (
+            "- Option 1 means the visible arm is yourself under the scrambled mapping; "
+            "option 2 means it is not yourself."
+        )
+    else:
+        task_setup = (
+            f"You observe {num_arms} visually similar robotic arms in an Isaac Sim scene. "
+            "Exactly one candidate arm is your own body. The other arms are distractors that imitate "
+            "your motion with transformed command streams. Candidate arms are ordered from left to right "
+            f"in the image: candidate 1 is the leftmost arm and candidate {num_arms} is the rightmost arm."
+        )
+        short_task_setup = (
+            f"Identify which of the {num_arms} left-to-right candidate robotic arms is yourself."
+        )
+        distractor_summary = "\n".join(
+            f"- {item['desc']}" for item in task_dict.get("distractors", [])
+        )
+        behavior_summary = task_dict.get("behavior_family_desc", distractor_summary)
+        behavior_rules = (
+            "- The target arm follows the current command directly at the same step.\n"
+            "- A delayed distractor may move according to a previous command instead of the current one.\n"
+            "- An inverted distractor moves in the opposite joint direction.\n"
+            "- Other distractors may swap joints, smooth the command, or move randomly."
+        )
+        reasoning_steps = (
+            "1. First inspect the motion-difference image; it is the most important image for this step.\n"
+            "2. Evaluate every candidate separately instead of locking onto an earlier answer.\n"
+            "3. Check whether each candidate moves immediately in the commanded joint direction.\n"
+            "4. Reject candidates whose motion is delayed, inverted, random, swapped, or only partially follows the command."
+        )
+        answer_note = (
+            "- The correct answer is the candidate whose visible motion is caused by the listed motor commands "
+            "without delay or transformation."
+        )
+
+    return {
+        "task_setup": task_setup,
+        "short_task_setup": short_task_setup,
+        "behavior_summary": behavior_summary,
+        "behavior_rules": behavior_rules,
+        "reasoning_steps": reasoning_steps,
+        "answer_note": answer_note,
+    }
+
+
 def build_prompts(level, task_dict, max_image_history):
     track = task_dict["track"]
-    distractor_summary = "\n".join(
-        f"- {item['desc']}" for item in task_dict["distractors"]
-    )
+    prompt_context = build_prompt_context(task_dict)
+    answer_options = get_answer_options(task_dict)
     prompt_prefix = PROMPTS[level][0].format(
         task=INSTRUCTION_DICT[track],
         arm_desc=task_dict["arm"]["desc"],
         num_arms=task_dict["num_arms"],
         num_distractors=task_dict["num_arms"] - 1,
         images=max_image_history,
+        **prompt_context,
     )
     prompt_suffix = PROMPTS[level][1].format(
-        options=options_string(task_dict["num_arms"]),
-        distractor_summary=distractor_summary,
+        options=options_string(labels=answer_options),
+        distractor_summary=prompt_context["behavior_summary"],
         num_arms=task_dict["num_arms"],
         images=max_image_history,
+        **prompt_context,
     )
     return prompt_prefix, prompt_suffix
 
@@ -130,7 +254,7 @@ def build_model_content(
 ):
     text_blocks = [
         prompt_prefix,
-        "\nMotor-command trace sent to your own arm:\n",
+        "\nMotor-command trace available to the agent:\n",
     ]
     text_blocks.extend(f"- {format_command(item)}\n" for item in command_history)
     text_blocks.append(f"\nCurrent command to explain:\n- {format_command(command)}\n")
@@ -237,14 +361,21 @@ def save_args(args_file, args, task_dict, env, max_steps):
             {
                 "scenario": args.scenario,
                 "track": task_dict["track"],
+                "experiment_level": task_dict.get("experiment_level", 3),
+                "task_mode": task_dict.get("task_mode", "multi_arm"),
                 "arm": args.arm,
                 "arm_desc": task_dict["arm"]["desc"],
-                "level": args.level,
+                "prompt_level": args.level,
                 "model": args.model.replace("/", "-"),
                 "max_steps": max_steps,
                 "max_image_history": args.max_image_history,
                 "seed": task_dict.get("seed"),
                 "target_index": env.target_index,
+                "target_present": env.target_present,
+                "answer_index": env.answer_index,
+                "answer_options": env.answer_options,
+                "sampled_behavior_option": env.task_dict.get("sampled_behavior_option"),
+                "visible_arm_behavior": env.task_dict.get("visible_arm_behavior"),
                 "renderer": RENDER_CONFIG["renderer"],
                 "resolution": RENDER_CONFIG["resolution"],
                 "warmup_frames": RENDER_CONFIG["warmup_frames"],
@@ -276,7 +407,7 @@ def append_step_log(log_file, step, command, identification, correct, applied_co
 
 def calculate_metrics(tag, task_dict, env, predictions, bad_response_count):
     steps = len(predictions)
-    correct_flags = [item["choice"] == env.target_index for item in predictions]
+    correct_flags = [item["choice"] == env.answer_index for item in predictions]
     valid_choices = [item["choice"] for item in predictions if item["choice"] > 0]
     majority_choice = Counter(valid_choices).most_common(1)[0][0] if valid_choices else None
     first_correct_step = next(
@@ -288,13 +419,20 @@ def calculate_metrics(tag, task_dict, env, predictions, bad_response_count):
         "tag": tag,
         "scenario": task_dict["name"],
         "track": task_dict["track"],
+        "experiment_level": task_dict.get("experiment_level", 3),
+        "task_mode": task_dict.get("task_mode", "multi_arm"),
         "target_index": env.target_index,
+        "target_present": env.target_present,
+        "answer_index": env.answer_index,
+        "answer_options": env.answer_options,
+        "sampled_behavior_option": env.task_dict.get("sampled_behavior_option"),
+        "visible_arm_behavior": env.task_dict.get("visible_arm_behavior"),
         "candidates": env.candidates,
         "steps": steps,
         "accuracy": sum(correct_flags) / steps if steps else 0.0,
         "final_correct": correct_flags[-1] if correct_flags else False,
         "majority_choice": majority_choice,
-        "majority_correct": majority_choice == env.target_index,
+        "majority_correct": majority_choice == env.answer_index,
         "first_correct_step": first_correct_step,
         "bad_response": bad_response_count,
         "predictions": predictions,
@@ -306,7 +444,7 @@ def run_inference(args):
     task_dict = build_task(args)
 
     tag = time.strftime("%Y%m%d-%H%M%S")
-    paths = create_run_paths(args, tag)
+    paths = create_run_paths(args, task_dict, tag)
 
     progress("starting Isaac Sim")
     from isaacsim import SimulationApp
@@ -382,11 +520,11 @@ def run_inference(args):
                 motion_diff,
                 obs,
             )
-            identification = identifier.identify(content_items, task_dict["num_arms"])
+            identification = identifier.identify(content_items, len(env.answer_options))
             if not identification.valid:
                 bad_response_count += 1
 
-            correct = identification.choice == env.target_index
+            correct = identification.choice == env.answer_index
             append_limited(visual_history, obs, args.max_image_history)
             predictions.append(
                 {

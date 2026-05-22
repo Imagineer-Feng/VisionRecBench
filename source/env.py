@@ -59,14 +59,24 @@ class VisionRecBenchEnv:
         self.num_arms = int(self.task_dict["num_arms"])
         self.episode_steps = int(self.task_dict["episode_steps"])
         self.rng = np.random.default_rng(int(self.task_dict.get("seed", 0)))
+        self.task_mode = self.task_dict.get("task_mode", "multi_arm")
 
-        requested_target = self.task_dict.get("target_index")
-        if requested_target is None:
-            self.target_index = int(self.rng.integers(1, self.num_arms + 1))
+        if self.task_mode == "single_binary":
+            self._configure_single_binary_task()
         else:
-            self.target_index = int(requested_target)
-        if not 1 <= self.target_index <= self.num_arms:
-            raise ValueError("target_index must be within [1, num_arms].")
+            requested_target = self.task_dict.get("target_index")
+            if requested_target is None:
+                self.target_index = int(self.rng.integers(1, self.num_arms + 1))
+            else:
+                self.target_index = int(requested_target)
+            if not 1 <= self.target_index <= self.num_arms:
+                raise ValueError("target_index must be within [1, num_arms].")
+            self.target_present = True
+            self.answer_options = [
+                f"candidate arm {i} from left to right"
+                for i in range(1, self.num_arms + 1)
+            ]
+            self.answer_index = self.target_index
 
         self.world = World(stage_units_in_meters=1.0)
         self.stage = self.world.stage
@@ -105,6 +115,30 @@ class VisionRecBenchEnv:
         self._create_scene()
         self._create_arms()
         self._create_camera()
+
+    def _configure_single_binary_task(self):
+        behavior_options = self.task_dict.get("visible_arm_behavior_options")
+        if behavior_options:
+            option_index = int(self.rng.integers(0, len(behavior_options)))
+            selected = copy.deepcopy(behavior_options[option_index])
+            self.task_dict["visible_arm_behavior"] = selected["behavior"]
+            self.task_dict["target_present"] = bool(selected["target_present"])
+            self.task_dict["sampled_behavior_option"] = option_index + 1
+
+        self.target_present = bool(self.task_dict.get("target_present", True))
+        self.target_index = 1 if self.target_present else None
+        self.answer_options = list(
+            self.task_dict.get(
+                "answer_options",
+                [
+                    "yes, the visible arm is myself",
+                    "no, the visible arm is not myself",
+                ],
+            )
+        )
+        if len(self.answer_options) != 2:
+            raise ValueError("single_binary scenarios must define exactly two answer options.")
+        self.answer_index = 1 if self.target_present else 2
 
     def _normalize_rgb(self, rgb):
         rgb = np.asarray(rgb)
@@ -174,10 +208,13 @@ class VisionRecBenchEnv:
     def _create_arms(self):
         spacing = float(self.task_dict["layout_spacing"])
         x_offset = (self.num_arms - 1) * spacing / 2.0
-        distractors = iter(self.task_dict["distractors"])
+        distractors = iter(self.task_dict.get("distractors", []))
 
         for index in range(1, self.num_arms + 1):
-            if index == self.target_index:
+            if self.task_mode == "single_binary":
+                behavior = copy.deepcopy(self.task_dict["visible_arm_behavior"])
+                role = "target" if self.target_present else "non_target"
+            elif index == self.target_index:
                 behavior = {
                     "behavior": "direct",
                     "desc": "the target arm that follows the motor command directly",
@@ -482,6 +519,12 @@ class VisionRecBenchEnv:
 
         if behavior == "axis_swap":
             return np.array([target_delta[1], target_delta[0]], dtype=float)
+
+        if behavior == "mapped_direct":
+            mapping = np.array(arm["behavior"]["mapping"], dtype=float)
+            if mapping.shape != (2, 2):
+                raise ValueError("mapped_direct behavior requires a 2x2 mapping matrix.")
+            return mapping @ target_delta
 
         if behavior == "smooth":
             alpha = float(arm["behavior"].get("alpha", 0.5))

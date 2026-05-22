@@ -2,20 +2,22 @@
 set -euo pipefail
 
 model="${1:-random}"
-level="${2:-1}"
+prompt_level="${2:-1}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 scenarios=(
+  level1_single_direct
+  level1_single_random
+  level2_single_scrambled_fixed
   triad_delay_invert
-  quad_delay_swap_random
-  quint_all_distractors
+  triad_panda_delay_invert
 )
 
 for scenario in "${scenarios[@]}"; do
   "$ISAACSIM_ROOT/python.sh" "$script_dir/inference.py" \
     --scenario "$scenario" \
-    --level "$level" \
+    --level "$prompt_level" \
     --model "$model" \
     --headless
 done

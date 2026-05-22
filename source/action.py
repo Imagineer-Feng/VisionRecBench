@@ -12,7 +12,13 @@ def candidate_options(num_arms):
     return [""] + [f"candidate arm {i} from left to right" for i in range(1, num_arms + 1)]
 
 
-def options_string(num_arms):
+def options_string(num_arms=None, labels=None):
+    if labels is not None:
+        return "\n".join(
+            f"{i}. {label}"
+            for i, label in enumerate(labels, start=1)
+        )
+
     return "\n".join(
         f"{i}. candidate arm {i} from left to right"
         for i in range(1, num_arms + 1)

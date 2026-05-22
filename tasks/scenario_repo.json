@@ -1,6 +1,115 @@
 {
+    "level1_single_direct": {
+        "track": "Robot",
+        "experiment_level": 1,
+        "task_mode": "single_binary",
+        "arm": "procedural_2link_arm",
+        "num_arms": 1,
+        "target_present": true,
+        "visible_arm_behavior": "direct",
+        "answer_options": [
+            "yes, the visible arm is myself",
+            "no, the visible arm is not myself"
+        ],
+        "layout_spacing": 1.15,
+        "episode_steps": 8,
+        "seed": 101,
+        "behavior_family_desc": "- Self case: the visible arm follows the current motor command directly.\n- Non-self case: the visible arm samples random motor commands independently.",
+        "command_sequence": [
+            {"name": "shoulder_up", "delta": [1, 0]},
+            {"name": "elbow_fold", "delta": [0, 1]},
+            {"name": "shoulder_down", "delta": [-1, 0]},
+            {"name": "elbow_extend", "delta": [0, -1]},
+            {"name": "both_up_fold", "delta": [1, 1]},
+            {"name": "shoulder_down_elbow_fold", "delta": [-1, 1]},
+            {"name": "shoulder_up_elbow_extend", "delta": [1, -1]},
+            {"name": "both_down_extend", "delta": [-1, -1]}
+        ]
+    },
+    "level1_single_random": {
+        "track": "Robot",
+        "experiment_level": 1,
+        "task_mode": "single_binary",
+        "arm": "procedural_2link_arm",
+        "num_arms": 1,
+        "target_present": false,
+        "visible_arm_behavior": "random",
+        "answer_options": [
+            "yes, the visible arm is myself",
+            "no, the visible arm is not myself"
+        ],
+        "layout_spacing": 1.15,
+        "episode_steps": 8,
+        "seed": 102,
+        "behavior_family_desc": "- Self case: the visible arm follows the current motor command directly.\n- Non-self case: the visible arm samples random motor commands independently.",
+        "command_sequence": [
+            {"name": "shoulder_up", "delta": [1, 0]},
+            {"name": "elbow_fold", "delta": [0, 1]},
+            {"name": "shoulder_down", "delta": [-1, 0]},
+            {"name": "elbow_extend", "delta": [0, -1]},
+            {"name": "both_up_fold", "delta": [1, 1]},
+            {"name": "shoulder_down_elbow_fold", "delta": [-1, 1]},
+            {"name": "shoulder_up_elbow_extend", "delta": [1, -1]},
+            {"name": "both_down_extend", "delta": [-1, -1]}
+        ]
+    },
+    "level1_single_direct_or_random": {
+        "track": "Robot",
+        "experiment_level": 1,
+        "task_mode": "single_binary",
+        "arm": "procedural_2link_arm",
+        "num_arms": 1,
+        "visible_arm_behavior_options": [
+            {"target_present": true, "behavior": "direct"},
+            {"target_present": false, "behavior": "random"}
+        ],
+        "answer_options": [
+            "yes, the visible arm is myself",
+            "no, the visible arm is not myself"
+        ],
+        "layout_spacing": 1.15,
+        "episode_steps": 8,
+        "seed": 103,
+        "behavior_family_desc": "- Self case: the visible arm follows the current motor command directly.\n- Non-self case: the visible arm samples random motor commands independently.",
+        "command_sequence": [
+            {"name": "shoulder_up", "delta": [1, 0]},
+            {"name": "elbow_fold", "delta": [0, 1]},
+            {"name": "shoulder_down", "delta": [-1, 0]},
+            {"name": "elbow_extend", "delta": [0, -1]},
+            {"name": "both_up_fold", "delta": [1, 1]},
+            {"name": "shoulder_down_elbow_fold", "delta": [-1, 1]},
+            {"name": "shoulder_up_elbow_extend", "delta": [1, -1]},
+            {"name": "both_down_extend", "delta": [-1, -1]}
+        ]
+    },
+    "level2_single_scrambled_fixed": {
+        "track": "Robot",
+        "experiment_level": 2,
+        "task_mode": "single_binary",
+        "arm": "procedural_2link_arm",
+        "num_arms": 1,
+        "target_present": true,
+        "visible_arm_behavior": {
+            "behavior": "mapped_direct",
+            "mapping": [[0, 1], [1, 0]],
+            "desc": "stable scrambled action-space mapping: the shoulder command is applied to the elbow and the elbow command is applied to the shoulder"
+        },
+        "answer_options": [
+            "yes, the visible arm is myself",
+            "no, the visible arm is not myself"
+        ],
+        "layout_spacing": 1.15,
+        "episode_steps": 10,
+        "seed": 201,
+        "behavior_family_desc": "- Self case: the visible arm uses a stable scrambled mapping from motor commands to physical joints.\n- The same fixed command should repeatedly produce the same mapped action, even though it differs from the normal command label.",
+        "command_sequence": [
+            {"name": "fixed_shoulder_up", "delta": [1, 0]}
+        ]
+    },
     "triad_delay_invert": {
         "track": "Robot",
+        "experiment_level": 3,
+        "task_mode": "multi_arm",
         "arm": "procedural_2link_arm",
         "num_arms": 3,
         "target_index": null,
@@ -21,22 +130,24 @@
     },
     "triad_panda_delay_invert": {
         "track": "Robot",
+        "experiment_level": 3,
+        "task_mode": "multi_arm",
         "arm": "panda_arm",
         "num_arms": 3,
         "target_index": null,
         "layout_spacing": 1.45,
         "floor_width": 5.5,
         "floor_depth": 2.8,
-        "floor_color": [0.48, 0.51, 0.52],
-        "floor_roughness": 0.72,
-        "background_color": [0.68, 0.72, 0.76],
-        "ambient_light_intensity": 0.45,
-        "key_light_intensity": 6200.0,
+        "floor_color": [0.08, 0.24, 0.26],
+        "floor_roughness": 0.86,
+        "background_color": [0.10, 0.18, 0.24],
+        "ambient_light_intensity": 0.22,
+        "key_light_intensity": 3400.0,
         "key_light_angle": 0.75,
         "key_light_rotation": [-48.0, 0.0, 28.0],
-        "dome_light_intensity": 1250.0,
-        "dome_light_color": [0.86, 0.90, 0.96],
-        "fill_light_intensity": 2600.0,
+        "dome_light_intensity": 520.0,
+        "dome_light_color": [0.42, 0.62, 0.66],
+        "fill_light_intensity": 1100.0,
         "fill_light_radius": 4.0,
         "fill_light_position": [0.0, -2.4, 2.3],
         "camera_eye": [0.0, -4.8, 2.2],
@@ -58,6 +169,8 @@
     },
     "quad_delay_swap_random": {
         "track": "Robot",
+        "experiment_level": 3,
+        "task_mode": "multi_arm",
         "arm": "procedural_2link_arm",
         "num_arms": 4,
         "target_index": null,
@@ -80,6 +193,8 @@
     },
     "quint_all_distractors": {
         "track": "Robot",
+        "experiment_level": 3,
+        "task_mode": "multi_arm",
         "arm": "procedural_blue_arm",
         "num_arms": 5,
         "target_index": null,
