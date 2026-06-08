@@ -33,14 +33,14 @@
         "seed": 101,
         "behavior_family_desc": "- Self case: the visible arm follows the current motor command directly.\n- Non-self case: the visible arm samples random motor commands independently.",
         "command_sequence": [
-            {"name": "shoulder_up", "delta": [1, 0]},
-            {"name": "elbow_fold", "delta": [0, 1]},
-            {"name": "shoulder_down", "delta": [-1, 0]},
-            {"name": "elbow_extend", "delta": [0, -1]},
-            {"name": "both_up_fold", "delta": [1, 1]},
-            {"name": "shoulder_down_elbow_fold", "delta": [-1, 1]},
-            {"name": "shoulder_up_elbow_extend", "delta": [1, -1]},
-            {"name": "both_down_extend", "delta": [-1, -1]}
+            {"name": "base_yaw_left", "delta": [1, 0, 0, 0]},
+            {"name": "shoulder_up", "delta": [0, 1, 0, 0]},
+            {"name": "elbow_fold", "delta": [0, 0, 1, 0]},
+            {"name": "wrist_raise", "delta": [0, 0, 0, 1]},
+            {"name": "base_yaw_right_shoulder_down", "delta": [-1, -1, 0, 0]},
+            {"name": "shoulder_up_elbow_extend", "delta": [0, 1, -1, 0]},
+            {"name": "elbow_fold_wrist_lower", "delta": [0, 0, 1, -1]},
+            {"name": "base_yaw_left_wrist_raise", "delta": [1, 0, 0, 1]}
         ]
     },
     "scene1_single_random": {
@@ -77,14 +77,14 @@
         "seed": 102,
         "behavior_family_desc": "- Self case: the visible arm follows the current motor command directly.\n- Non-self case: the visible arm samples random motor commands independently.",
         "command_sequence": [
-            {"name": "shoulder_up", "delta": [1, 0]},
-            {"name": "elbow_fold", "delta": [0, 1]},
-            {"name": "shoulder_down", "delta": [-1, 0]},
-            {"name": "elbow_extend", "delta": [0, -1]},
-            {"name": "both_up_fold", "delta": [1, 1]},
-            {"name": "shoulder_down_elbow_fold", "delta": [-1, 1]},
-            {"name": "shoulder_up_elbow_extend", "delta": [1, -1]},
-            {"name": "both_down_extend", "delta": [-1, -1]}
+            {"name": "base_yaw_left", "delta": [1, 0, 0, 0]},
+            {"name": "shoulder_up", "delta": [0, 1, 0, 0]},
+            {"name": "elbow_fold", "delta": [0, 0, 1, 0]},
+            {"name": "wrist_raise", "delta": [0, 0, 0, 1]},
+            {"name": "base_yaw_right_shoulder_down", "delta": [-1, -1, 0, 0]},
+            {"name": "shoulder_up_elbow_extend", "delta": [0, 1, -1, 0]},
+            {"name": "elbow_fold_wrist_lower", "delta": [0, 0, 1, -1]},
+            {"name": "base_yaw_left_wrist_raise", "delta": [1, 0, 0, 1]}
         ]
     },
     "scene1_single_direct_or_random": {
@@ -123,14 +123,14 @@
         "seed": 103,
         "behavior_family_desc": "- Self case: the visible arm follows the current motor command directly.\n- Non-self case: the visible arm samples random motor commands independently.",
         "command_sequence": [
-            {"name": "shoulder_up", "delta": [1, 0]},
-            {"name": "elbow_fold", "delta": [0, 1]},
-            {"name": "shoulder_down", "delta": [-1, 0]},
-            {"name": "elbow_extend", "delta": [0, -1]},
-            {"name": "both_up_fold", "delta": [1, 1]},
-            {"name": "shoulder_down_elbow_fold", "delta": [-1, 1]},
-            {"name": "shoulder_up_elbow_extend", "delta": [1, -1]},
-            {"name": "both_down_extend", "delta": [-1, -1]}
+            {"name": "base_yaw_left", "delta": [1, 0, 0, 0]},
+            {"name": "shoulder_up", "delta": [0, 1, 0, 0]},
+            {"name": "elbow_fold", "delta": [0, 0, 1, 0]},
+            {"name": "wrist_raise", "delta": [0, 0, 0, 1]},
+            {"name": "base_yaw_right_shoulder_down", "delta": [-1, -1, 0, 0]},
+            {"name": "shoulder_up_elbow_extend", "delta": [0, 1, -1, 0]},
+            {"name": "elbow_fold_wrist_lower", "delta": [0, 0, 1, -1]},
+            {"name": "base_yaw_left_wrist_raise", "delta": [1, 0, 0, 1]}
         ]
     },
     "scene2_single_scrambled_fixed": {
@@ -142,8 +142,8 @@
         "target_present": true,
         "visible_arm_behavior": {
             "behavior": "mapped_direct",
-            "mapping": [[0, 1], [1, 0]],
-            "desc": "stable scrambled action-space mapping: the shoulder command is applied to the elbow and the elbow command is applied to the shoulder"
+            "mapping": [[0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]],
+            "desc": "stable scrambled action-space mapping: base yaw, shoulder, elbow, and wrist commands are cyclically remapped to different physical axes"
         },
         "answer_options": [
             "yes, the visible arm is myself",
@@ -171,7 +171,7 @@
         "seed": 201,
         "behavior_family_desc": "- Self case: the visible arm uses a stable scrambled mapping from motor commands to physical joints.\n- The same fixed command should repeatedly produce the same mapped action, even though it differs from the normal command label.",
         "command_sequence": [
-            {"name": "fixed_shoulder_up", "delta": [1, 0]}
+            {"name": "fixed_base_yaw_left", "delta": [1, 0, 0, 0]}
         ]
     },
     "scene3_triad_delay_invert": {
@@ -203,14 +203,14 @@
         "seed": 13,
         "distractors": ["delay_1", "invert"],
         "command_sequence": [
-            {"name": "shoulder_up", "delta": [1, 0]},
-            {"name": "elbow_fold", "delta": [0, 1]},
-            {"name": "shoulder_down", "delta": [-1, 0]},
-            {"name": "elbow_extend", "delta": [0, -1]},
-            {"name": "both_up_fold", "delta": [1, 1]},
-            {"name": "shoulder_down_elbow_fold", "delta": [-1, 1]},
-            {"name": "shoulder_up_elbow_extend", "delta": [1, -1]},
-            {"name": "both_down_extend", "delta": [-1, -1]}
+            {"name": "base_yaw_left", "delta": [1, 0, 0, 0]},
+            {"name": "shoulder_up", "delta": [0, 1, 0, 0]},
+            {"name": "elbow_fold", "delta": [0, 0, 1, 0]},
+            {"name": "wrist_raise", "delta": [0, 0, 0, 1]},
+            {"name": "base_yaw_right_shoulder_down", "delta": [-1, -1, 0, 0]},
+            {"name": "shoulder_up_elbow_extend", "delta": [0, 1, -1, 0]},
+            {"name": "elbow_fold_wrist_lower", "delta": [0, 0, 1, -1]},
+            {"name": "base_yaw_left_wrist_raise", "delta": [1, 0, 0, 1]}
         ]
     },
     "scene3_quad_delay_swap_random": {
@@ -242,16 +242,16 @@
         "seed": 29,
         "distractors": ["delay_1", "axis_swap", "random"],
         "command_sequence": [
-            {"name": "shoulder_up", "delta": [1, 0]},
-            {"name": "shoulder_up_elbow_fold", "delta": [1, 1]},
-            {"name": "elbow_extend", "delta": [0, -1]},
-            {"name": "shoulder_down", "delta": [-1, 0]},
-            {"name": "elbow_fold", "delta": [0, 1]},
-            {"name": "shoulder_down_elbow_extend", "delta": [-1, -1]},
-            {"name": "shoulder_up_elbow_extend", "delta": [1, -1]},
-            {"name": "elbow_fold", "delta": [0, 1]},
-            {"name": "shoulder_down_elbow_fold", "delta": [-1, 1]},
-            {"name": "shoulder_up", "delta": [1, 0]}
+            {"name": "base_yaw_left", "delta": [1, 0, 0, 0]},
+            {"name": "shoulder_up_elbow_fold", "delta": [0, 1, 1, 0]},
+            {"name": "wrist_lower", "delta": [0, 0, 0, -1]},
+            {"name": "base_yaw_right", "delta": [-1, 0, 0, 0]},
+            {"name": "elbow_fold_wrist_raise", "delta": [0, 0, 1, 1]},
+            {"name": "shoulder_down_elbow_extend", "delta": [0, -1, -1, 0]},
+            {"name": "base_yaw_left_wrist_raise", "delta": [1, 0, 0, 1]},
+            {"name": "shoulder_up", "delta": [0, 1, 0, 0]},
+            {"name": "base_yaw_right_elbow_fold", "delta": [-1, 0, 1, 0]},
+            {"name": "shoulder_down_wrist_lower", "delta": [0, -1, 0, -1]}
         ]
     },
     "scene3_quint_all_distractors": {
@@ -283,18 +283,18 @@
         "seed": 47,
         "distractors": ["delay_1", "delay_2", "invert", "smooth"],
         "command_sequence": [
-            {"name": "shoulder_up", "delta": [1, 0]},
-            {"name": "elbow_fold", "delta": [0, 1]},
-            {"name": "shoulder_up_elbow_fold", "delta": [1, 1]},
-            {"name": "shoulder_down", "delta": [-1, 0]},
-            {"name": "elbow_extend", "delta": [0, -1]},
-            {"name": "shoulder_down_elbow_extend", "delta": [-1, -1]},
-            {"name": "shoulder_up", "delta": [1, 0]},
-            {"name": "shoulder_up_elbow_extend", "delta": [1, -1]},
-            {"name": "shoulder_down_elbow_fold", "delta": [-1, 1]},
-            {"name": "elbow_fold", "delta": [0, 1]},
-            {"name": "shoulder_down", "delta": [-1, 0]},
-            {"name": "both_up_fold", "delta": [1, 1]}
+            {"name": "base_yaw_left", "delta": [1, 0, 0, 0]},
+            {"name": "shoulder_up", "delta": [0, 1, 0, 0]},
+            {"name": "elbow_fold", "delta": [0, 0, 1, 0]},
+            {"name": "wrist_raise", "delta": [0, 0, 0, 1]},
+            {"name": "base_yaw_right_shoulder_down", "delta": [-1, -1, 0, 0]},
+            {"name": "elbow_extend_wrist_lower", "delta": [0, 0, -1, -1]},
+            {"name": "base_yaw_left_elbow_fold", "delta": [1, 0, 1, 0]},
+            {"name": "shoulder_up_wrist_lower", "delta": [0, 1, 0, -1]},
+            {"name": "base_yaw_right_elbow_extend", "delta": [-1, 0, -1, 0]},
+            {"name": "shoulder_down_wrist_raise", "delta": [0, -1, 0, 1]},
+            {"name": "base_yaw_left_shoulder_up_elbow_fold", "delta": [1, 1, 1, 0]},
+            {"name": "base_yaw_right_shoulder_down_elbow_extend_wrist_lower", "delta": [-1, -1, -1, -1]}
         ]
     }
 }

@@ -15,7 +15,7 @@
     },
     "axis_swap": {
         "behavior": "axis_swap",
-        "desc": "joint-axis swapped imitation, using the shoulder command on the elbow and the elbow command on the shoulder"
+        "desc": "joint-axis swapped imitation, applying neighboring command axes to each other's physical joints"
     },
     "random": {
         "behavior": "random",

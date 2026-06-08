@@ -106,6 +106,22 @@ class VisionRecBenchEnv:
             )
         )
         self.command_sequence = copy.deepcopy(self.task_dict["command_sequence"])
+        self.command_dim = len(self.command_sequence[0]["delta"])
+        default_labels = (
+            ["shoulder", "elbow"][: self.command_dim]
+            if self.command_dim <= 2
+            else [f"axis_{index}" for index in range(1, self.command_dim + 1)]
+        )
+        self.control_labels = list(self.arm_cfg.get("control_labels", default_labels))
+        if len(self.control_labels) != self.command_dim:
+            raise ValueError(
+                "arm control_labels length must match command delta dimension."
+            )
+        for item in self.command_sequence:
+            if len(item["delta"]) != self.command_dim:
+                raise ValueError(
+                    "Every command delta in a scenario must have the same dimension."
+                )
         self.command_library = [
             np.array(item["delta"], dtype=float) for item in self.command_sequence
         ]
@@ -231,7 +247,7 @@ class VisionRecBenchEnv:
                 "behavior": behavior,
                 "base_pos": base_pos,
                 "joints": self.initial_joints.copy(),
-                "smooth_command": np.zeros(2),
+                "smooth_command": np.zeros(self.command_dim),
                 "xforms": {},
                 "articulation": None,
                 "control_indices": None,
@@ -438,7 +454,7 @@ class VisionRecBenchEnv:
         self.world.reset()
         for arm in self.arms:
             arm["joints"] = self.initial_joints.copy()
-            arm["smooth_command"] = np.zeros(2)
+            arm["smooth_command"] = np.zeros(self.command_dim)
             if self.arm_root == "panda":
                 self._initialize_panda_controls(arm)
             self._update_arm_pose(arm)
@@ -450,7 +466,7 @@ class VisionRecBenchEnv:
 
     def get_command(self, step):
         command = copy.deepcopy(self.command_sequence[(step - 1) % len(self.command_sequence)])
-        command["delta"] = [float(command["delta"][0]), float(command["delta"][1])]
+        command["delta"] = [float(value) for value in command["delta"]]
         command["step"] = int(step)
         return command
 
@@ -463,6 +479,10 @@ class VisionRecBenchEnv:
 
         for arm in self.arms:
             applied = self._apply_behavior(arm, target_delta)
+            if len(applied) != self.command_dim:
+                raise ValueError(
+                    "Applied command dimension must match scenario command dimension."
+                )
             self._advance_joints(arm, applied)
             applied_commands[str(arm["index"])] = applied.tolist()
             self._update_arm_pose(arm)
@@ -480,6 +500,10 @@ class VisionRecBenchEnv:
             "control_joints",
             ["panda_joint2", "panda_joint4"],
         )
+        if len(control_joints) != self.command_dim:
+            raise ValueError(
+                "Panda control_joints length must match command delta dimension."
+            )
         arm["control_indices"] = np.array(
             [arm["articulation"].get_dof_index(name) for name in control_joints],
             dtype=int,
@@ -511,19 +535,33 @@ class VisionRecBenchEnv:
         if behavior == "delay":
             delay = int(arm["behavior"].get("delay", 1))
             if len(self.command_memory) <= delay:
-                return np.zeros(2)
+                return np.zeros(self.command_dim)
             return self.command_memory[-1 - delay]
 
         if behavior == "invert":
             return -target_delta
 
         if behavior == "axis_swap":
-            return np.array([target_delta[1], target_delta[0]], dtype=float)
+            permutation = arm["behavior"].get("permutation")
+            if permutation is None:
+                permutation = list(range(self.command_dim))
+                for index in range(0, self.command_dim - 1, 2):
+                    permutation[index], permutation[index + 1] = (
+                        permutation[index + 1],
+                        permutation[index],
+                    )
+            if len(permutation) != self.command_dim:
+                raise ValueError("axis_swap permutation must match command dimension.")
+            return target_delta[np.array(permutation, dtype=int)]
 
         if behavior == "mapped_direct":
             mapping = np.array(arm["behavior"]["mapping"], dtype=float)
-            if mapping.shape != (2, 2):
-                raise ValueError("mapped_direct behavior requires a 2x2 mapping matrix.")
+            expected_shape = (self.command_dim, self.command_dim)
+            if mapping.shape != expected_shape:
+                raise ValueError(
+                    "mapped_direct behavior requires a "
+                    f"{self.command_dim}x{self.command_dim} mapping matrix."
+                )
             return mapping @ target_delta
 
         if behavior == "smooth":

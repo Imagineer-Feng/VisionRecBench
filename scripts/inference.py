@@ -116,10 +116,34 @@ def get_answer_options(task_dict):
     ]
 
 
+def get_control_labels(task_dict):
+    delta_dim = len(task_dict["command_sequence"][0]["delta"])
+    default_labels = (
+        ["shoulder", "elbow"][:delta_dim]
+        if delta_dim <= 2
+        else [f"axis_{index}" for index in range(1, delta_dim + 1)]
+    )
+    labels = list(task_dict["arm"].get("control_labels", default_labels))
+    if len(labels) != delta_dim:
+        raise ValueError("arm control_labels length must match command delta dimension.")
+    return labels
+
+
+def format_delta(delta, labels):
+    if len(delta) != len(labels):
+        raise ValueError("command delta length must match control label length.")
+    return ", ".join(
+        f"{label}_delta={value:g}"
+        for label, value in zip(labels, delta)
+    )
+
+
 def build_prompt_context(task_dict):
     num_arms = int(task_dict["num_arms"])
     task_mode = task_dict.get("task_mode", "multi_arm")
     scene = int(task_dict.get("scene", 3))
+    control_labels = get_control_labels(task_dict)
+    joint_names = ", ".join(control_labels)
 
     if task_mode == "single_binary" and scene == 1:
         task_setup = (
@@ -143,7 +167,7 @@ def build_prompt_context(task_dict):
         )
         reasoning_steps = (
             "1. Inspect the motion-difference image for the one visible arm.\n"
-            "2. Compare the observed shoulder and elbow motion with the current command.\n"
+            f"2. Compare the observed {joint_names} motion with the current command.\n"
             "3. Use the recent command history to reject random or inconsistent motion.\n"
             "4. Choose yes if the motion is command-caused; otherwise choose no."
         )
@@ -244,16 +268,17 @@ def build_prompts(level, task_dict, max_image_history):
     return prompt_prefix, prompt_suffix
 
 
-def format_command(command):
+def format_command(command, labels):
     return (
         f"Step {command['step']}: {command['name']} "
-        f"(shoulder_delta={command['delta'][0]}, elbow_delta={command['delta'][1]})"
+        f"({format_delta(command['delta'], labels)})"
     )
 
 
 def build_model_content(
     prompt_prefix,
     prompt_suffix,
+    control_labels,
     command,
     command_history,
     visual_history,
@@ -264,8 +289,8 @@ def build_model_content(
         prompt_prefix,
         "\nMotor-command trace available to the agent:\n",
     ]
-    text_blocks.extend(f"- {format_command(item)}\n" for item in command_history)
-    text_blocks.append(f"\nCurrent command to explain:\n- {format_command(command)}\n")
+    text_blocks.extend(f"- {format_command(item, control_labels)}\n" for item in command_history)
+    text_blocks.append(f"\nCurrent command to explain:\n- {format_command(command, control_labels)}\n")
     text_blocks.append(
         "\nJudge this step from the command trace and images. "
         "Do not rely on any previous answer.\n"
@@ -373,6 +398,8 @@ def save_args(args_file, args, task_dict, env, max_steps):
                 "task_mode": task_dict.get("task_mode", "multi_arm"),
                 "arm": args.arm,
                 "arm_desc": task_dict["arm"]["desc"],
+                "control_joints": task_dict["arm"].get("control_joints"),
+                "control_labels": get_control_labels(task_dict),
                 "prompt_level": args.level,
                 "model": args.model.replace("/", "-"),
                 "max_steps": max_steps,
@@ -404,7 +431,7 @@ def append_step_log(log_file, step, command, identification, correct, applied_co
         f.write(
             "Motor Command: "
             f"{command['name']} "
-            f"(shoulder_delta={command['delta'][0]}, elbow_delta={command['delta'][1]})\n"
+            f"({format_delta(command['delta'], command['control_labels'])})\n"
         )
         f.write(f"Model Response:\n\n{identification.text}\n")
         f.write(f"Choice: {identification.choice}\n")
@@ -497,6 +524,7 @@ def run_inference(args):
             task_dict,
             args.max_image_history,
         )
+        control_labels = get_control_labels(task_dict)
         save_args(paths["args_file"], args, task_dict, env, max_steps)
 
         predictions = []
@@ -505,6 +533,7 @@ def run_inference(args):
         bad_response_count = 0
         for step in range(1, max_steps + 1):
             command = env.get_command(step)
+            command["control_labels"] = control_labels
             progress(f"step {step}/{max_steps}: applying {command['name']}")
             obs, applied_commands = env.step(command)
             obs = save_rgb(obs, paths["obs_dir"] / f"{step}_{command['name']}_raw.png")
@@ -522,6 +551,7 @@ def run_inference(args):
             content_items = build_model_content(
                 prompt_prefix,
                 prompt_suffix,
+                control_labels,
                 command,
                 command_history,
                 visual_history,

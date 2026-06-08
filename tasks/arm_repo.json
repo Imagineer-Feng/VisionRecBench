@@ -32,7 +32,7 @@
     "panda_arm": {
         "root": "panda",
         "asset_path": "isaac://Isaac/Robots/Franka/franka_alt_fingers.usd",
-        "desc": "a Franka Panda robotic arm loaded from the Isaac Sim robot asset library",
+        "desc": "a Franka Panda robotic arm loaded from the Isaac Sim robot asset library with base, shoulder, elbow, and wrist control axes",
         "link_lengths": [0.62, 0.52],
         "base_size": [0.24, 0.24, 0.16],
         "wrist_size": [0.13, 0.13, 0.13],
@@ -49,6 +49,7 @@
             [0.0, 0.04]
         ],
         "command_step": 0.12,
-        "control_joints": ["panda_joint2", "panda_joint4"]
+        "control_joints": ["panda_joint1", "panda_joint2", "panda_joint4", "panda_joint6"],
+        "control_labels": ["base_yaw", "shoulder", "elbow", "wrist"]
     }
 }
