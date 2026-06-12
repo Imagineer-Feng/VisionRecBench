@@ -3,7 +3,7 @@
 VisionRecBench is a standalone Isaac Sim benchmark for embodied self-recognition. The standard benchmark scenarios use a Franka Panda robotic arm loaded from the Isaac Sim asset library instead of the earlier simple procedural arm. It now supports three scenes:
 
 - Scene 1: one visible arm, binary self/non-self judgment. The arm either follows the motor command directly or moves with random independent commands.
-- Scene 2: one visible arm under a fixed scrambled action-space mapping. A repeated fixed command can produce a stable but non-standard action, which should still be recognized as self-motion.
+- Scene 2: one visible arm under a fixed scrambled action-space mapping. A three-command cycle repeats three times, and a stable non-standard action pattern should still be recognized as self-motion.
 - Scene 3: the original multi-arm visual self-recognition task. One candidate arm is the target agent's own arm; the other candidates imitate the target through delayed, inverted, shuffled, smoothed, or random motor commands.
 
 The agent receives:
@@ -78,7 +78,7 @@ $ISAACSIM_ROOT/python.sh scripts/inference.py \
 
 You can also use `scene1_single_direct_or_random` to sample either the direct self case or the random non-self case from the scenario seed.
 
-Scene 2, fixed scrambled action-space mapping:
+Scene 2, fixed scrambled action-space mapping with a three-command cycle:
 
 ```shell
 $ISAACSIM_ROOT/python.sh scripts/inference.py \
@@ -143,7 +143,8 @@ Each run writes observations and logs to `logs/<timestamp>/` and metrics to `res
 
 The result JSON reports:
 
-- `accuracy`: fraction of episode steps where the model selected the correct answer option,
+- `accuracy`: fraction of model judgments where the model selected the correct answer option,
+- `prediction_steps`: number of LLM judgments made during the run; scene 2 makes one judgment after each three-action cycle, for three judgments total,
 - `scene`: scene task family, independent of prompt difficulty,
 - `task_mode`: `single_binary` or `multi_arm`,
 - `answer_index` and `answer_options`: the answer option used for scoring,

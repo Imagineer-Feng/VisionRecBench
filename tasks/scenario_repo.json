@@ -167,11 +167,14 @@
         "camera_eye": [0.0, -4.0, 2.15],
         "camera_target": [0.0, 0.04, 0.70],
         "camera_focal": 2.35,
-        "episode_steps": 10,
+        "episode_steps": 9,
         "seed": 201,
-        "behavior_family_desc": "- Self case: the visible arm uses a stable scrambled mapping from motor commands to physical joints.\n- The same fixed command should repeatedly produce the same mapped action, even though it differs from the normal command label.",
+        "judge_interval_steps": 3,
+        "behavior_family_desc": "- Self case: the visible arm uses a stable scrambled mapping from motor commands to physical joints.\n- A three-command cycle should repeatedly produce the same mapped action pattern across repetitions, even though each response may differ from the normal command label.",
         "command_sequence": [
-            {"name": "fixed_base_yaw_left", "delta": [1, 0, 0, 0]}
+            {"name": "cycle_base_yaw_left", "delta": [1, 0, 0, 0]},
+            {"name": "cycle_shoulder_up", "delta": [0, 1, 0, 0]},
+            {"name": "cycle_elbow_fold", "delta": [0, 0, 1, 0]}
         ]
     },
     "scene3_triad_delay_invert": {

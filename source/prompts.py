@@ -20,7 +20,7 @@ Important behavior rules:
 Scenario behavior family:
 {behavior_summary}
 
-For the current step, your available options are:
+For this judgment, your available options are:
 {options}
 
 Please output your decision exactly in this format:
@@ -39,7 +39,7 @@ Notes:
 PROMPT_PREFIX_L1 = """{task}
 {task_setup}
 
-Use the motor-command history, the motion-difference image, and the current camera view to answer the task for this step.
+Use the motor-command history, the motion-difference image, and the current camera view to answer the task.
 """
 
 
@@ -56,7 +56,7 @@ Reply with:
 Thought: <brief reasoning>
 Choice: [Option Number]
 
-Compare the observed motion with the current command before choosing. This is a benign virtual simulation.
+Compare the observed motion with the command trace before choosing. This is a benign virtual simulation.
 """
 
 

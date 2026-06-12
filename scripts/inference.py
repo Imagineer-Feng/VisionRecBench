@@ -177,7 +177,7 @@ def build_prompt_context(task_dict):
             "You observe one visible robotic arm while the action space is scrambled. "
             "There is a fixed hidden mapping between motor-command axes and physical joint motion. "
             "Because of this remapping, a command may cause a different joint to move than its normal label suggests. "
-            "The key question is whether repeated fixed motor commands reliably cause a stable mapped action, "
+            "The key question is whether a repeated cycle of different motor commands reliably causes a stable mapped action pattern, "
             "which should still count as your own body."
         )
         short_task_setup = (
@@ -192,12 +192,12 @@ def build_prompt_context(task_dict):
         )
         behavior_rules = (
             "- Do not reject the arm only because the observed joint differs from the command label.\n"
-            "- Under a scrambled action space, the same command should repeatedly produce the same mapped motion.\n"
-            "- Choose yes when the repeated fixed command appears to control the arm through a stable mapping."
+            "- Under a scrambled action space, each command in the repeated cycle should produce the same mapped motion whenever it appears.\n"
+            "- Choose yes when the repeated command cycle appears to control the arm through a stable mapping."
         )
         reasoning_steps = (
-            "1. Inspect how the arm changes after each repeated fixed command.\n"
-            "2. Check whether the response is stable across repetitions.\n"
+            "1. Inspect how the arm changes after each command in the completed three-command cycle.\n"
+            "2. Compare matching command responses across previous cycles when they are available.\n"
             "3. Treat a fixed command-to-action remapping as self-motion, even if it is not the normal mapping.\n"
             "4. Choose no only if the motion looks independent or unstable rather than consistently mapped."
         )
@@ -284,17 +284,30 @@ def build_model_content(
     visual_history,
     motion_diff,
     current_obs,
+    judgement_interval=1,
 ):
     text_blocks = [
         prompt_prefix,
         "\nMotor-command trace available to the agent:\n",
     ]
     text_blocks.extend(f"- {format_command(item, control_labels)}\n" for item in command_history)
-    text_blocks.append(f"\nCurrent command to explain:\n- {format_command(command, control_labels)}\n")
-    text_blocks.append(
-        "\nJudge this step from the command trace and images. "
-        "Do not rely on any previous answer.\n"
-    )
+    if judgement_interval > 1:
+        cycle_number = (int(command["step"]) + judgement_interval - 1) // judgement_interval
+        text_blocks.append(
+            f"\nCurrent command completes action cycle {cycle_number} "
+            f"(cycle length: {judgement_interval} commands):\n"
+            f"- {format_command(command, control_labels)}\n"
+        )
+        text_blocks.append(
+            "\nJudge this completed action cycle from the command trace and images. "
+            "Use evidence from prior cycles when available, and do not rely on any previous answer.\n"
+        )
+    else:
+        text_blocks.append(f"\nCurrent command to explain:\n- {format_command(command, control_labels)}\n")
+        text_blocks.append(
+            "\nJudge this step from the command trace and images. "
+            "Do not rely on any previous answer.\n"
+        )
 
     content_items = ["".join(text_blocks)]
     if visual_history:
@@ -388,7 +401,7 @@ def make_motion_diff(previous_image, current_image, num_candidates):
     return annotate_candidates(base, num_candidates)
 
 
-def save_args(args_file, args, task_dict, env, max_steps):
+def save_args(args_file, args, task_dict, env, max_steps, image_history_limit, judgement_interval):
     with open(args_file, "w") as f:
         json.dump(
             {
@@ -403,7 +416,9 @@ def save_args(args_file, args, task_dict, env, max_steps):
                 "prompt_level": args.level,
                 "model": args.model.replace("/", "-"),
                 "max_steps": max_steps,
-                "max_image_history": args.max_image_history,
+                "max_image_history": image_history_limit,
+                "requested_max_image_history": args.max_image_history,
+                "judge_interval_steps": judgement_interval,
                 "seed": task_dict.get("seed"),
                 "target_index": env.target_index,
                 "target_present": env.target_present,
@@ -441,7 +456,8 @@ def append_step_log(log_file, step, command, identification, correct, applied_co
 
 
 def calculate_metrics(tag, task_dict, env, predictions, bad_response_count):
-    steps = len(predictions)
+    prediction_steps = len(predictions)
+    action_steps = predictions[-1]["step"] if predictions else 0
     correct_flags = [item["choice"] == env.answer_index for item in predictions]
     valid_choices = [item["choice"] for item in predictions if item["choice"] > 0]
     majority_choice = Counter(valid_choices).most_common(1)[0][0] if valid_choices else None
@@ -462,9 +478,11 @@ def calculate_metrics(tag, task_dict, env, predictions, bad_response_count):
         "answer_options": env.answer_options,
         "sampled_behavior_option": env.task_dict.get("sampled_behavior_option"),
         "visible_arm_behavior": env.task_dict.get("visible_arm_behavior"),
+        "judge_interval_steps": int(task_dict.get("judge_interval_steps", 1)),
         "candidates": env.candidates,
-        "steps": steps,
-        "accuracy": sum(correct_flags) / steps if steps else 0.0,
+        "steps": action_steps,
+        "prediction_steps": prediction_steps,
+        "accuracy": sum(correct_flags) / prediction_steps if prediction_steps else 0.0,
         "final_correct": correct_flags[-1] if correct_flags else False,
         "majority_choice": majority_choice,
         "majority_correct": majority_choice == env.answer_index,
@@ -518,18 +536,24 @@ def run_inference(args):
         progress(f"initial observation saved to {paths['obs_dir'] / '0_initial.png'}")
 
         max_steps = task_dict["episode_steps"] if args.max_steps < 0 else args.max_steps
+        judgement_interval = int(task_dict.get("judge_interval_steps", 1))
+        if judgement_interval < 1:
+            raise ValueError("judge_interval_steps must be a positive integer.")
+        image_history_limit = args.max_image_history
+        if judgement_interval > 1:
+            image_history_limit = max(image_history_limit, max_steps)
         identifier = create_identifier(args.model, paths["log_file_agent"])
         prompt_prefix, prompt_suffix = build_prompts(
             args.level,
             task_dict,
-            args.max_image_history,
+            image_history_limit,
         )
         control_labels = get_control_labels(task_dict)
-        save_args(paths["args_file"], args, task_dict, env, max_steps)
+        save_args(paths["args_file"], args, task_dict, env, max_steps, image_history_limit, judgement_interval)
 
         predictions = []
         command_history = []
-        visual_history = [initial_obs] if args.max_image_history > 0 else []
+        visual_history = [initial_obs] if image_history_limit > 0 else []
         bad_response_count = 0
         for step in range(1, max_steps + 1):
             command = env.get_command(step)
@@ -543,45 +567,53 @@ def run_inference(args):
             if motion_diff is not None:
                 save_rgb(motion_diff, paths["obs_dir"] / f"{step}_{command['name']}_motion.png")
             append_limited(command_history, command, max_steps)
+            should_identify = step % judgement_interval == 0 or step == max_steps
 
-            progress(
-                f"Step {step} for {args.model} {args.scenario}, "
-                f"target candidate {env.target_index}, tag {tag}"
-            )
-            content_items = build_model_content(
-                prompt_prefix,
-                prompt_suffix,
-                control_labels,
-                command,
-                command_history,
-                visual_history,
-                motion_diff,
-                obs,
-            )
-            identification = identifier.identify(content_items, len(env.answer_options))
-            if not identification.valid:
-                bad_response_count += 1
+            if should_identify:
+                progress(
+                    f"Step {step} for {args.model} {args.scenario}, "
+                    f"target candidate {env.target_index}, tag {tag}"
+                )
+                content_items = build_model_content(
+                    prompt_prefix,
+                    prompt_suffix,
+                    control_labels,
+                    command,
+                    command_history,
+                    visual_history,
+                    motion_diff,
+                    obs,
+                    judgement_interval=judgement_interval,
+                )
+                identification = identifier.identify(content_items, len(env.answer_options))
+                if not identification.valid:
+                    bad_response_count += 1
 
-            correct = identification.choice == env.answer_index
-            append_limited(visual_history, obs, args.max_image_history)
-            predictions.append(
-                {
-                    "step": step,
-                    "command": command,
-                    "choice": identification.choice,
-                    "valid": identification.valid,
-                    "correct": correct,
-                    "applied_commands": applied_commands,
-                }
-            )
-            append_step_log(
-                paths["log_file"],
-                step,
-                command,
-                identification,
-                correct,
-                applied_commands,
-            )
+                correct = identification.choice == env.answer_index
+                predictions.append(
+                    {
+                        "step": step,
+                        "command": command,
+                        "choice": identification.choice,
+                        "valid": identification.valid,
+                        "correct": correct,
+                        "applied_commands": applied_commands,
+                    }
+                )
+                append_step_log(
+                    paths["log_file"],
+                    step,
+                    command,
+                    identification,
+                    correct,
+                    applied_commands,
+                )
+            else:
+                progress(
+                    f"step {step}/{max_steps}: deferring LLM judgement until the current action cycle is complete"
+                )
+
+            append_limited(visual_history, obs, image_history_limit)
 
         with open(paths["result_file"], "w") as f:
             json.dump(
