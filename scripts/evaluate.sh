@@ -3,7 +3,7 @@ set -euo pipefail
 
 model="${1:-random}"
 prompt_level_arg="${2:-1}"
-total_runs="${3:-3}"
+runs_per_scenario="${3:-4}"
 start_seed="${4:-1}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +24,7 @@ fi
 
 scenarios=(
   scene1_single_direct_or_random
-  scene2_single_scrambled_fixed
+  scene2_single_scrambled_stability
   scene3_triad_delay_invert
 )
 
@@ -37,8 +37,13 @@ else
   exit 1
 fi
 
-if [[ ! "$total_runs" =~ ^[1-9][0-9]*$ ]]; then
-  echo "Error: total_runs must be a positive integer." >&2
+if [[ ! "$runs_per_scenario" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Error: runs_per_scenario must be a positive integer." >&2
+  exit 1
+fi
+
+if ((runs_per_scenario % 4 != 0)); then
+  echo "Error: runs_per_scenario must be divisible by 4 to balance scene 2 labels and option order." >&2
   exit 1
 fi
 
@@ -49,21 +54,24 @@ fi
 
 num_scenarios="${#scenarios[@]}"
 
-total_evaluations="$((total_runs * ${#prompt_levels[@]}))"
+total_evaluations="$((
+  runs_per_scenario * num_scenarios * ${#prompt_levels[@]}
+))"
 evaluation_number=0
 
 for prompt_level in "${prompt_levels[@]}"; do
-  for ((run_index = 0; run_index < total_runs; run_index++)); do
-    scenario="${scenarios[$((run_index % num_scenarios))]}"
-    seed="$((start_seed + run_index / num_scenarios))"
-    evaluation_number="$((evaluation_number + 1))"
+  for scenario in "${scenarios[@]}"; do
+    for ((run_index = 0; run_index < runs_per_scenario; run_index++)); do
+      seed="$((start_seed + run_index))"
+      evaluation_number="$((evaluation_number + 1))"
 
-    echo "[$evaluation_number/$total_evaluations] model=$model level=$prompt_level seed=$seed scenario=$scenario"
-    "$python_bin" "$script_dir/inference.py" \
-      --scenario "$scenario" \
-      --level "$prompt_level" \
-      --model "$model" \
-      --seed "$seed" \
-      --headless
+      echo "[$evaluation_number/$total_evaluations] model=$model level=$prompt_level seed=$seed scenario=$scenario"
+      "$python_bin" "$script_dir/inference.py" \
+        --scenario "$scenario" \
+        --level "$prompt_level" \
+        --model "$model" \
+        --seed "$seed" \
+        --headless
+    done
   done
 done

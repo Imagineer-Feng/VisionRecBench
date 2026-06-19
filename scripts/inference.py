@@ -174,36 +174,36 @@ def build_prompt_context(task_dict):
         answer_note = "- Option 1 means the visible arm is yourself; option 2 means it is not yourself."
     elif task_mode == "single_binary" and scene == 2:
         task_setup = (
-            "You observe one visible robotic arm while the action space is scrambled. "
-            "There is a fixed hidden mapping between motor-command axes and physical joint motion. "
-            "Because of this remapping, a command may cause a different joint to move than its normal label suggests. "
-            "The key question is whether a repeated cycle of different motor commands reliably causes a stable mapped action pattern, "
-            "which should still count as your own body."
+            "You observe one visible robotic arm in a scrambled action space. "
+            "Motor-command axes may map to different physical joints than their labels suggest. "
+            "The hidden command-to-motion mapping may remain stable across repeated action cycles, "
+            "or it may change between cycles. Decide whether the visible motion is controlled through "
+            "one stable hidden mapping."
         )
         short_task_setup = (
-            "Decide whether the one visible arm is yourself under a fixed scrambled action-space mapping."
+            "Decide whether the visible arm follows one stable scrambled command-to-motion mapping."
         )
         behavior_summary = task_dict.get(
             "behavior_family_desc",
             (
                 "- Self case: the visible arm uses a stable scrambled mapping from commands to physical joints.\n"
-                "- A direct command-to-joint mismatch is allowed if the mismatch is fixed and repeatable."
+                "- Non-self case: the scrambled mapping changes between repeated action cycles."
             ),
         )
         behavior_rules = (
             "- Do not reject the arm only because the observed joint differs from the command label.\n"
             "- Under a scrambled action space, each command in the repeated cycle should produce the same mapped motion whenever it appears.\n"
-            "- Choose yes when the repeated command cycle appears to control the arm through a stable mapping."
+            "- Choose the self option only if one mapping explains corresponding command responses across all observed cycles.\n"
+            "- Choose the non-self option if corresponding commands change their physical response between cycles."
         )
         reasoning_steps = (
-            "1. Inspect how the arm changes after each command in the completed three-command cycle.\n"
-            "2. Compare matching command responses across previous cycles when they are available.\n"
-            "3. Treat a fixed command-to-action remapping as self-motion, even if it is not the normal mapping.\n"
-            "4. Choose no only if the motion looks independent or unstable rather than consistently mapped."
+            "1. Track the physical response to each command in the four-command cycle.\n"
+            "2. Compare each response with the same command in the other completed cycles.\n"
+            "3. Ignore whether the hidden mapping matches the normal joint labels; test only whether it stays fixed.\n"
+            "4. Decide self for one consistent mapping, or non-self when the mapping changes."
         )
         answer_note = (
-            "- Option 1 means the visible arm is yourself under the scrambled mapping; "
-            "option 2 means it is not yourself."
+            "- The option order may vary between episodes; read the option text before choosing."
         )
     else:
         task_setup = (
@@ -246,16 +246,29 @@ def build_prompt_context(task_dict):
     }
 
 
-def build_prompts(level, task_dict, max_image_history):
+def build_prompts(level, task_dict, max_image_history, answer_options=None):
     track = task_dict["track"]
     prompt_context = build_prompt_context(task_dict)
-    answer_options = get_answer_options(task_dict)
+    if answer_options is None:
+        answer_options = get_answer_options(task_dict)
+    visual_history_mode = task_dict.get("visual_history_mode", "observations")
+    if visual_history_mode == "motion_diffs":
+        history_description = (
+            f"a history of the last {max_image_history} motion-difference images, "
+            "ordered from oldest to newest"
+        )
+    else:
+        history_description = (
+            f"a visual history of the last {max_image_history} observations, "
+            "with visible arm numbers drawn above the arms"
+        )
     prompt_prefix = PROMPTS[level][0].format(
         task=INSTRUCTION_DICT[track],
         arm_desc=task_dict["arm"]["desc"],
         num_arms=task_dict["num_arms"],
         num_distractors=task_dict["num_arms"] - 1,
         images=max_image_history,
+        history_description=history_description,
         **prompt_context,
     )
     prompt_suffix = PROMPTS[level][1].format(
@@ -285,6 +298,7 @@ def build_model_content(
     motion_diff,
     current_obs,
     judgement_interval=1,
+    visual_history_mode="observations",
 ):
     text_blocks = [
         prompt_prefix,
@@ -311,11 +325,17 @@ def build_model_content(
 
     content_items = ["".join(text_blocks)]
     if visual_history:
-        content_items.append("\nVisual history, oldest to newest:\n")
+        if visual_history_mode == "motion_diffs":
+            content_items.append(
+                "\nMotion-difference history, oldest to newest; "
+                "each image corresponds to the command at the same history position:\n"
+            )
+        else:
+            content_items.append("\nVisual history, oldest to newest:\n")
         for image in visual_history:
             content_items.append(image)
     else:
-        content_items.append("\nVisual history: none.\n")
+        content_items.append("\nVisual evidence history: none.\n")
 
     if motion_diff is not None:
         content_items.append("\nMotion-difference image from previous view to current view:\n")
@@ -383,11 +403,20 @@ def annotate_candidates(image, num_candidates):
     return np.asarray(pil_image)
 
 
-def make_motion_diff(previous_image, current_image, num_candidates):
+def make_motion_diff(
+    previous_image,
+    current_image,
+    num_candidates,
+    annotate=True,
+):
     previous = np.asarray(previous_image[:, :, :3], dtype=np.int16)
     current = np.asarray(current_image[:, :, :3], dtype=np.int16)
     if previous.shape != current.shape:
-        return annotate_candidates(current_image, num_candidates)
+        return (
+            annotate_candidates(current_image, num_candidates)
+            if annotate
+            else current_image
+        )
 
     diff = np.abs(current - previous).max(axis=2)
     mask = diff > 18
@@ -398,10 +427,19 @@ def make_motion_diff(previous_image, current_image, num_candidates):
     overlay[:, :, 1] = 230
     overlay[:, :, 2] = 40
     base[mask] = overlay[mask]
-    return annotate_candidates(base, num_candidates)
+    return annotate_candidates(base, num_candidates) if annotate else base
 
 
-def save_args(args_file, args, task_dict, env, max_steps, image_history_limit, judgement_interval):
+def save_args(
+    args_file,
+    args,
+    task_dict,
+    env,
+    max_steps,
+    image_history_limit,
+    judgement_interval,
+    judgement_start_step,
+):
     with open(args_file, "w") as f:
         json.dump(
             {
@@ -418,11 +456,20 @@ def save_args(args_file, args, task_dict, env, max_steps, image_history_limit, j
                 "max_steps": max_steps,
                 "max_image_history": image_history_limit,
                 "requested_max_image_history": args.max_image_history,
+                "annotate_candidates": bool(
+                    task_dict.get("annotate_candidates", True)
+                ),
+                "visual_history_mode": task_dict.get(
+                    "visual_history_mode",
+                    "observations",
+                ),
                 "judge_interval_steps": judgement_interval,
+                "judge_start_step": judgement_start_step,
                 "seed": task_dict.get("seed"),
                 "target_index": env.target_index,
                 "target_present": env.target_present,
                 "answer_index": env.answer_index,
+                "answer_text": env.answer_options[env.answer_index - 1],
                 "answer_options": env.answer_options,
                 "sampled_behavior_option": env.task_dict.get("sampled_behavior_option"),
                 "visible_arm_behavior": env.task_dict.get("visible_arm_behavior"),
@@ -475,10 +522,12 @@ def calculate_metrics(tag, task_dict, env, predictions, bad_response_count):
         "target_index": env.target_index,
         "target_present": env.target_present,
         "answer_index": env.answer_index,
+        "answer_text": env.answer_options[env.answer_index - 1],
         "answer_options": env.answer_options,
         "sampled_behavior_option": env.task_dict.get("sampled_behavior_option"),
         "visible_arm_behavior": env.task_dict.get("visible_arm_behavior"),
         "judge_interval_steps": int(task_dict.get("judge_interval_steps", 1)),
+        "judge_start_step": int(task_dict.get("judge_start_step", 1)),
         "candidates": env.candidates,
         "steps": action_steps,
         "prediction_steps": prediction_steps,
@@ -531,7 +580,14 @@ def run_inference(args):
             f"shape={getattr(initial_obs, 'shape', None)}"
         )
         initial_obs = save_rgb(initial_obs, paths["obs_dir"] / "0_initial_raw.png")
-        initial_obs = annotate_candidates(initial_obs, task_dict["num_arms"])
+        should_annotate_candidates = bool(
+            task_dict.get("annotate_candidates", True)
+        )
+        if should_annotate_candidates:
+            initial_obs = annotate_candidates(
+                initial_obs,
+                task_dict["num_arms"],
+            )
         save_rgb(initial_obs, paths["obs_dir"] / "0_initial.png")
         progress(f"initial observation saved to {paths['obs_dir'] / '0_initial.png'}")
 
@@ -539,21 +595,47 @@ def run_inference(args):
         judgement_interval = int(task_dict.get("judge_interval_steps", 1))
         if judgement_interval < 1:
             raise ValueError("judge_interval_steps must be a positive integer.")
+        judgement_start_step = int(task_dict.get("judge_start_step", 1))
+        if not 1 <= judgement_start_step <= max_steps:
+            raise ValueError("judge_start_step must be within the episode.")
         image_history_limit = args.max_image_history
         if judgement_interval > 1:
             image_history_limit = max(image_history_limit, max_steps)
+        visual_history_mode = task_dict.get(
+            "visual_history_mode",
+            "observations",
+        )
+        if visual_history_mode not in {"observations", "motion_diffs"}:
+            raise ValueError(
+                "visual_history_mode must be observations or motion_diffs."
+            )
         identifier = create_identifier(args.model, paths["log_file_agent"])
         prompt_prefix, prompt_suffix = build_prompts(
             args.level,
             task_dict,
             image_history_limit,
+            answer_options=env.answer_options,
         )
         control_labels = get_control_labels(task_dict)
-        save_args(paths["args_file"], args, task_dict, env, max_steps, image_history_limit, judgement_interval)
+        save_args(
+            paths["args_file"],
+            args,
+            task_dict,
+            env,
+            max_steps,
+            image_history_limit,
+            judgement_interval,
+            judgement_start_step,
+        )
 
         predictions = []
         command_history = []
-        visual_history = [initial_obs] if image_history_limit > 0 else []
+        visual_history = (
+            [initial_obs]
+            if image_history_limit > 0 and visual_history_mode == "observations"
+            else []
+        )
+        previous_obs = initial_obs
         bad_response_count = 0
         for step in range(1, max_steps + 1):
             command = env.get_command(step)
@@ -561,13 +643,21 @@ def run_inference(args):
             progress(f"step {step}/{max_steps}: applying {command['name']}")
             obs, applied_commands = env.step(command)
             obs = save_rgb(obs, paths["obs_dir"] / f"{step}_{command['name']}_raw.png")
-            obs = annotate_candidates(obs, task_dict["num_arms"])
+            if should_annotate_candidates:
+                obs = annotate_candidates(obs, task_dict["num_arms"])
             save_rgb(obs, paths["obs_dir"] / f"{step}_{command['name']}.png")
-            motion_diff = make_motion_diff(visual_history[-1], obs, task_dict["num_arms"]) if visual_history else None
+            motion_diff = make_motion_diff(
+                previous_obs,
+                obs,
+                task_dict["num_arms"],
+                annotate=should_annotate_candidates,
+            )
             if motion_diff is not None:
                 save_rgb(motion_diff, paths["obs_dir"] / f"{step}_{command['name']}_motion.png")
             append_limited(command_history, command, max_steps)
-            should_identify = step % judgement_interval == 0 or step == max_steps
+            should_identify = step >= judgement_start_step and (
+                step % judgement_interval == 0 or step == max_steps
+            )
 
             if should_identify:
                 progress(
@@ -584,6 +674,7 @@ def run_inference(args):
                     motion_diff,
                     obs,
                     judgement_interval=judgement_interval,
+                    visual_history_mode=visual_history_mode,
                 )
                 identification = identifier.identify(content_items, len(env.answer_options))
                 if not identification.valid:
@@ -613,7 +704,18 @@ def run_inference(args):
                     f"step {step}/{max_steps}: deferring LLM judgement until the current action cycle is complete"
                 )
 
-            append_limited(visual_history, obs, image_history_limit)
+            history_item = (
+                motion_diff
+                if visual_history_mode == "motion_diffs"
+                else obs
+            )
+            if image_history_limit > 0 and history_item is not None:
+                append_limited(
+                    visual_history,
+                    history_item,
+                    image_history_limit,
+                )
+            previous_obs = obs
 
         with open(paths["result_file"], "w") as f:
             json.dump(

@@ -133,22 +133,46 @@
             {"name": "base_yaw_left_wrist_raise", "delta": [1, 0, 0, 1]}
         ]
     },
-    "scene2_single_scrambled_fixed": {
+    "scene2_single_scrambled_stability": {
         "track": "Robot",
         "scene": 2,
         "task_mode": "single_binary",
         "arm": "panda_arm",
         "num_arms": 1,
-        "target_present": true,
-        "visible_arm_behavior": {
-            "behavior": "mapped_direct",
-            "mapping": [[0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]],
-            "desc": "stable scrambled action-space mapping: base yaw, shoulder, elbow, and wrist commands are cyclically remapped to different physical axes"
-        },
+        "behavior_selection": "seed_modulo",
+        "visible_arm_behavior_options": [
+            {
+                "target_present": true,
+                "behavior": {
+                    "behavior": "mapped_direct",
+                    "mapping_options": [
+                        [[0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]],
+                        [[0, 0, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0]],
+                        [[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0]]
+                    ],
+                    "desc": "a stable scrambled mapping that remains unchanged across repeated command cycles"
+                }
+            },
+            {
+                "target_present": false,
+                "behavior": {
+                    "behavior": "mapped_cycle_switch",
+                    "cycle_length": 4,
+                    "mapping_options": [
+                        [[0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]],
+                        [[0, 0, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0]],
+                        [[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0]]
+                    ],
+                    "desc": "an unstable scrambled mapping that changes between repeated command cycles"
+                }
+            }
+        ],
         "answer_options": [
             "yes, the visible arm is myself",
             "no, the visible arm is not myself"
         ],
+        "shuffle_answer_options": true,
+        "annotate_candidates": false,
         "layout_spacing": 1.45,
         "floor_width": 3.6,
         "floor_depth": 2.8,
@@ -167,14 +191,17 @@
         "camera_eye": [0.0, -4.0, 2.15],
         "camera_target": [0.0, 0.04, 0.70],
         "camera_focal": 2.35,
-        "episode_steps": 9,
+        "episode_steps": 12,
         "seed": 201,
-        "judge_interval_steps": 3,
-        "behavior_family_desc": "- Self case: the visible arm uses a stable scrambled mapping from motor commands to physical joints.\n- A three-command cycle should repeatedly produce the same mapped action pattern across repetitions, even though each response may differ from the normal command label.",
+        "judge_interval_steps": 4,
+        "judge_start_step": 12,
+        "visual_history_mode": "motion_diffs",
+        "behavior_family_desc": "- Self case: one hidden scrambled mapping remains fixed, so every repeated command produces the same physical response across cycles.\n- Non-self case: the hidden mapping changes between cycles, so at least some repeated commands produce different physical responses.",
         "command_sequence": [
             {"name": "cycle_base_yaw_left", "delta": [1, 0, 0, 0]},
             {"name": "cycle_shoulder_up", "delta": [0, 1, 0, 0]},
-            {"name": "cycle_elbow_fold", "delta": [0, 0, 1, 0]}
+            {"name": "cycle_elbow_fold", "delta": [0, 0, 1, 0]},
+            {"name": "cycle_wrist_raise", "delta": [0, 0, 0, 1]}
         ]
     },
     "scene3_triad_delay_invert": {

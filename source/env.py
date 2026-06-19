@@ -15,6 +15,12 @@ import isaacsim.core.utils.numpy.rotations as rot_utils
 from pxr import Gf, Sdf, UsdGeom, UsdLux, UsdShade
 
 from source.render_config import RENDER_CONFIG
+from source.task_logic import (
+    apply_mapped_behavior,
+    configure_binary_answers,
+    materialize_mapping_behavior,
+    select_behavior_option,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -135,26 +141,40 @@ class VisionRecBenchEnv:
     def _configure_single_binary_task(self):
         behavior_options = self.task_dict.get("visible_arm_behavior_options")
         if behavior_options:
-            option_index = int(self.rng.integers(0, len(behavior_options)))
+            option_index = select_behavior_option(
+                behavior_options,
+                seed=self.task_dict.get("seed", 0),
+                strategy=self.task_dict.get("behavior_selection", "random"),
+                rng=self.rng,
+            )
             selected = copy.deepcopy(behavior_options[option_index])
-            self.task_dict["visible_arm_behavior"] = selected["behavior"]
+            self.task_dict["visible_arm_behavior"] = materialize_mapping_behavior(
+                selected["behavior"],
+                seed=self.task_dict.get("seed", 0),
+                behavior_option_count=len(behavior_options),
+            )
             self.task_dict["target_present"] = bool(selected["target_present"])
             self.task_dict["sampled_behavior_option"] = option_index + 1
+        else:
+            self.task_dict["visible_arm_behavior"] = materialize_mapping_behavior(
+                self.task_dict["visible_arm_behavior"],
+                seed=self.task_dict.get("seed", 0),
+            )
 
         self.target_present = bool(self.task_dict.get("target_present", True))
         self.target_index = 1 if self.target_present else None
-        self.answer_options = list(
+        self.answer_options, self.answer_index = configure_binary_answers(
             self.task_dict.get(
                 "answer_options",
                 [
                     "yes, the visible arm is myself",
                     "no, the visible arm is not myself",
                 ],
-            )
+            ),
+            target_present=self.target_present,
+            seed=self.task_dict.get("seed", 0),
+            shuffle=bool(self.task_dict.get("shuffle_answer_options", False)),
         )
-        if len(self.answer_options) != 2:
-            raise ValueError("single_binary scenarios must define exactly two answer options.")
-        self.answer_index = 1 if self.target_present else 2
 
     def _normalize_rgb(self, rgb):
         rgb = np.asarray(rgb)
@@ -554,15 +574,13 @@ class VisionRecBenchEnv:
                 raise ValueError("axis_swap permutation must match command dimension.")
             return target_delta[np.array(permutation, dtype=int)]
 
-        if behavior == "mapped_direct":
-            mapping = np.array(arm["behavior"]["mapping"], dtype=float)
-            expected_shape = (self.command_dim, self.command_dim)
-            if mapping.shape != expected_shape:
-                raise ValueError(
-                    "mapped_direct behavior requires a "
-                    f"{self.command_dim}x{self.command_dim} mapping matrix."
-                )
-            return mapping @ target_delta
+        if behavior in {"mapped_direct", "mapped_cycle_switch"}:
+            return apply_mapped_behavior(
+                arm["behavior"],
+                target_delta,
+                command_index=len(self.command_memory) - 1,
+                command_dim=self.command_dim,
+            )
 
         if behavior == "smooth":
             alpha = float(arm["behavior"].get("alpha", 0.5))

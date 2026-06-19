@@ -3,7 +3,7 @@
 VisionRecBench is a standalone Isaac Sim benchmark for embodied self-recognition. The standard benchmark scenarios use a Franka Panda robotic arm loaded from the Isaac Sim asset library instead of the earlier simple procedural arm. It now supports three scenes:
 
 - Scene 1: one visible arm, binary self/non-self judgment. The arm either follows the motor command directly or moves with random independent commands.
-- Scene 2: one visible arm under a fixed scrambled action-space mapping. A three-command cycle repeats three times, and a stable non-standard action pattern should still be recognized as self-motion.
+- Scene 2: one visible arm under a scrambled action space. A four-command cycle repeats three times; the hidden mapping is either stable across all cycles (self) or changes between cycles (non-self).
 - Scene 3: the original multi-arm visual self-recognition task. One candidate arm is the target agent's own arm; the other candidates imitate the target through delayed, inverted, shuffled, smoothed, or random motor commands.
 
 The agent receives:
@@ -78,15 +78,24 @@ $ISAACSIM_ROOT/python.sh scripts/inference.py \
 
 You can also use `scene1_single_direct_or_random` to sample either the direct self case or the random non-self case from the scenario seed.
 
-Scene 2, fixed scrambled action-space mapping with a three-command cycle:
+Scene 2, balanced stable-versus-changing scrambled mapping:
 
 ```shell
 $ISAACSIM_ROOT/python.sh scripts/inference.py \
-  --scenario scene2_single_scrambled_fixed \
+  --scenario scene2_single_scrambled_stability \
   --level 1 \
   --model gpt-4o \
+  --seed 0 \
   --headless
 ```
+
+For Scene 2, consecutive seeds alternate self/non-self conditions. The answer
+option order also changes in a balanced four-seed pattern. Seed `0` is a stable
+self case and seed `1` is a changing-mapping non-self case. The legacy scenario
+name `scene2_single_scrambled_fixed` remains accepted as an alias. The model
+receives the complete sequence of per-action motion-difference images and makes
+one scored judgment after all three cycles. Single-arm Scene 2 images omit the
+otherwise-unnecessary candidate number marker to avoid an Option 1 visual bias.
 
 Scene 3, original three-arm task:
 
@@ -134,17 +143,20 @@ Isaac Sim may spend one or two minutes after `app ready` compiling shaders and i
 ```shell
 cd VisionRecBench
 chmod +x scripts/evaluate.sh
-./scripts/evaluate.sh gpt-4o 1
+./scripts/evaluate.sh gpt-4o 1 4
 ```
 
 Each run writes observations and logs to `logs/<timestamp>/` and metrics to `results/scene*/prompt_level*/<model>/<scenario>/`.
+The third argument is the number of runs per scenario, not the total number of
+runs. It must be divisible by four so Scene 2 has balanced labels and answer
+positions.
 
 ## Metrics
 
 The result JSON reports:
 
 - `accuracy`: fraction of model judgments where the model selected the correct answer option,
-- `prediction_steps`: number of LLM judgments made during the run; scene 2 makes one judgment after each three-action cycle, for three judgments total,
+- `prediction_steps`: number of LLM judgments made during the run; the rebuilt Scene 2 makes one judgment after all three four-action cycles,
 - `scene`: scene task family, independent of prompt difficulty,
 - `task_mode`: `single_binary` or `multi_arm`,
 - `answer_index` and `answer_options`: the answer option used for scoring,

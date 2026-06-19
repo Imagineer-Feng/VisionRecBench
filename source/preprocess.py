@@ -17,6 +17,10 @@ repos = {
     "scenario": _load_repo("scenario"),
 }
 
+SCENARIO_ALIASES = {
+    "scene2_single_scrambled_fixed": "scene2_single_scrambled_stability",
+}
+
 
 def _resolve_named_block(repo_name, block):
     if isinstance(block, str):
@@ -79,9 +83,15 @@ def preprocess(task_dict):
 
 
 def construct(id_dict):
-    scenario_name = id_dict["scenario"]
+    requested_scenario_name = id_dict["scenario"]
+    scenario_name = SCENARIO_ALIASES.get(
+        requested_scenario_name,
+        requested_scenario_name,
+    )
     task_dict = copy.deepcopy(repos["scenario"][scenario_name])
     task_dict["name"] = scenario_name
+    if requested_scenario_name != scenario_name:
+        task_dict["requested_name"] = requested_scenario_name
 
     if "arm" in id_dict and id_dict["arm"] is not None:
         task_dict["arm"] = id_dict["arm"]
