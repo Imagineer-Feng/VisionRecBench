@@ -3,7 +3,7 @@ set -euo pipefail
 
 model="${1:-random}"
 prompt_level_arg="${2:-1}"
-runs_per_scenario="${3:-4}"
+runs_per_scenario="${3:-12}"
 start_seed="${4:-1}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,7 +25,7 @@ fi
 scenarios=(
   scene1_single_command_causality
   scene2_single_scrambled_stability
-  scene3_triad_delay_invert
+  scene3_triad_causal_identification
 )
 
 if [[ "$prompt_level_arg" == "all" ]]; then
@@ -42,8 +42,8 @@ if [[ ! "$runs_per_scenario" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
-if ((runs_per_scenario % 4 != 0)); then
-  echo "Error: runs_per_scenario must be divisible by 4 to balance scene 2 labels and option order." >&2
+if ((runs_per_scenario % 12 != 0)); then
+  echo "Error: runs_per_scenario must be divisible by 12 to balance scene 1/2 binary labels and scene 3 target/role positions." >&2
   exit 1
 fi
 

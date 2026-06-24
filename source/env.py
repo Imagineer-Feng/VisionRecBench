@@ -17,6 +17,7 @@ from pxr import Gf, Sdf, UsdGeom, UsdLux, UsdShade
 from source.render_config import RENDER_CONFIG
 from source.task_logic import (
     apply_mapped_behavior,
+    build_multi_arm_role_assignment,
     build_deranged_command_schedule,
     configure_binary_answers,
     materialize_mapping_behavior,
@@ -71,19 +72,7 @@ class VisionRecBenchEnv:
         if self.task_mode == "single_binary":
             self._configure_single_binary_task()
         else:
-            requested_target = self.task_dict.get("target_index")
-            if requested_target is None:
-                self.target_index = int(self.rng.integers(1, self.num_arms + 1))
-            else:
-                self.target_index = int(requested_target)
-            if not 1 <= self.target_index <= self.num_arms:
-                raise ValueError("target_index must be within [1, num_arms].")
-            self.target_present = True
-            self.answer_options = [
-                f"candidate arm {i} from left to right"
-                for i in range(1, self.num_arms + 1)
-            ]
-            self.answer_index = self.target_index
+            self._configure_multi_arm_task()
 
         self.world = World(stage_units_in_meters=1.0)
         self.stage = self.world.stage
@@ -177,6 +166,30 @@ class VisionRecBenchEnv:
             shuffle=bool(self.task_dict.get("shuffle_answer_options", False)),
         )
 
+    def _configure_multi_arm_task(self):
+        strategy = self.task_dict.get("role_assignment_strategy", "seed_stratified")
+        if strategy != "seed_stratified":
+            raise ValueError(
+                f"Unsupported multi-arm role_assignment_strategy: {strategy}"
+            )
+        self.role_assignments = build_multi_arm_role_assignment(
+            self.num_arms,
+            self.task_dict.get("distractors", []),
+            seed=self.task_dict.get("seed", 0),
+            target_index=self.task_dict.get("target_index"),
+        )
+        self.target_index = next(
+            item["index"] for item in self.role_assignments if item["role"] == "target"
+        )
+        self.task_dict["target_index"] = self.target_index
+        self.task_dict["role_assignments"] = copy.deepcopy(self.role_assignments)
+        self.target_present = True
+        self.answer_options = [
+            f"candidate arm {i} from left to right"
+            for i in range(1, self.num_arms + 1)
+        ]
+        self.answer_index = self.target_index
+
     def _normalize_rgb(self, rgb):
         rgb = np.asarray(rgb)
         if rgb.ndim != 3 or rgb.shape[2] < 3 or rgb.size == 0:
@@ -245,21 +258,15 @@ class VisionRecBenchEnv:
     def _create_arms(self):
         spacing = float(self.task_dict["layout_spacing"])
         x_offset = (self.num_arms - 1) * spacing / 2.0
-        distractors = iter(self.task_dict.get("distractors", []))
 
         for index in range(1, self.num_arms + 1):
             if self.task_mode == "single_binary":
                 behavior = copy.deepcopy(self.task_dict["visible_arm_behavior"])
                 role = "target" if self.target_present else "non_target"
-            elif index == self.target_index:
-                behavior = {
-                    "behavior": "direct",
-                    "desc": "the target arm that follows the motor command directly",
-                }
-                role = "target"
             else:
-                behavior = copy.deepcopy(next(distractors))
-                role = "distractor"
+                assignment = self.role_assignments[index - 1]
+                behavior = copy.deepcopy(assignment["behavior"])
+                role = assignment["role"]
 
             base_pos = np.array([(index - 1) * spacing - x_offset, 0.0, 0.0])
             arm = {

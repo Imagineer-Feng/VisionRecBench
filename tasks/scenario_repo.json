@@ -229,15 +229,17 @@
             {"name": "cycle_wrist_raise", "delta": [0, 0, 0, 1]}
         ]
     },
-    "scene3_triad_delay_invert": {
+    "scene3_triad_causal_identification": {
         "track": "Robot",
         "scene": 3,
         "task_mode": "multi_arm",
         "arm": "panda_arm",
         "num_arms": 3,
         "target_index": null,
+        "role_assignment_strategy": "seed_stratified",
+        "annotate_candidates": true,
         "layout_spacing": 1.45,
-        "floor_width": 5.5,
+        "floor_width": 6.4,
         "floor_depth": 2.8,
         "floor_color": [0.08, 0.24, 0.26],
         "floor_roughness": 0.86,
@@ -251,21 +253,25 @@
         "fill_light_intensity": 1100.0,
         "fill_light_radius": 4.0,
         "fill_light_position": [0.0, -2.4, 2.3],
-        "camera_eye": [0.0, -4.8, 2.2],
+        "camera_eye": [0.0, -5.8, 2.35],
         "camera_target": [0.0, 0.04, 0.70],
-        "camera_focal": 2.2,
+        "camera_focal": 1.8,
         "episode_steps": 8,
         "seed": 13,
+        "judge_interval_steps": 8,
+        "judge_start_step": 8,
+        "visual_history_mode": "candidate_motion_panels",
+        "behavior_family_desc": "- Self candidate: exactly one arm follows the current motor command directly at the same step.\n- Delay distractor: one arm follows the previous command, so early evidence can be ambiguous until enough history exists.\n- Invert distractor: one arm applies the opposite sign of the current command.\n- Candidate position and behavior role are independently stratified by seed; do not assume a behavior from left/right position.",
         "distractors": ["delay_1", "invert"],
         "command_sequence": [
-            {"name": "base_yaw_left", "delta": [1, 0, 0, 0]},
-            {"name": "shoulder_up", "delta": [0, 1, 0, 0]},
-            {"name": "elbow_fold", "delta": [0, 0, 1, 0]},
-            {"name": "wrist_raise", "delta": [0, 0, 0, 1]},
-            {"name": "base_yaw_right_shoulder_down", "delta": [-1, -1, 0, 0]},
-            {"name": "shoulder_up_elbow_extend", "delta": [0, 1, -1, 0]},
-            {"name": "elbow_fold_wrist_lower", "delta": [0, 0, 1, -1]},
-            {"name": "base_yaw_left_wrist_raise", "delta": [1, 0, 0, 1]}
+            {"name": "base_yaw_axis_positive", "delta": [1, 0, 0, 0]},
+            {"name": "shoulder_axis_positive", "delta": [0, 1, 0, 0]},
+            {"name": "elbow_axis_positive", "delta": [0, 0, 1, 0]},
+            {"name": "wrist_axis_positive", "delta": [0, 0, 0, 1]},
+            {"name": "base_yaw_axis_negative_shoulder_axis_negative", "delta": [-1, -1, 0, 0]},
+            {"name": "shoulder_axis_positive_elbow_axis_negative", "delta": [0, 1, -1, 0]},
+            {"name": "elbow_axis_positive_wrist_axis_negative", "delta": [0, 0, 1, -1]},
+            {"name": "base_yaw_axis_positive_wrist_axis_positive", "delta": [1, 0, 0, 1]}
         ]
     },
     "scene3_quad_delay_swap_random": {

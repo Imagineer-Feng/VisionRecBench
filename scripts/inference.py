@@ -31,7 +31,7 @@ INSTRUCTION_DICT = {
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scenario", type=str, default="scene3_triad_delay_invert")
+    parser.add_argument("--scenario", type=str, default="scene3_triad_causal_identification")
     parser.add_argument(
         "--arm",
         type=str,
@@ -139,6 +139,21 @@ def format_delta(delta, labels):
     )
 
 
+def get_current_evidence_description(task_dict):
+    visual_history_mode = task_dict.get("visual_history_mode", "observations")
+    if visual_history_mode == "candidate_motion_panels":
+        return (
+            "candidate motion panel that shows before, after, and signed-change "
+            "crops for each candidate arm"
+        )
+    if visual_history_mode == "motion_diffs":
+        return (
+            "motion-difference image that highlights what changed between the "
+            "previous observation and the current observation"
+        )
+    return "current observation image after the latest command"
+
+
 def build_prompt_context(task_dict):
     num_arms = int(task_dict["num_arms"])
     task_mode = task_dict.get("task_mode", "multi_arm")
@@ -217,7 +232,9 @@ def build_prompt_context(task_dict):
             f"You observe {num_arms} visually similar robotic arms in an Isaac Sim scene. "
             "Exactly one candidate arm is your own body. The other arms are distractors that imitate "
             "your motion with transformed command streams. Candidate arms are ordered from left to right "
-            f"in the image: candidate 1 is the leftmost arm and candidate {num_arms} is the rightmost arm."
+            f"in the image: candidate 1 is the leftmost arm and candidate {num_arms} is the rightmost arm. "
+            "The target, delayed, and inverted roles are independently assigned to positions by seed, "
+            "so left/right position alone is not evidence."
         )
         short_task_setup = (
             f"Identify which of the {num_arms} left-to-right candidate robotic arms is yourself."
@@ -230,17 +247,19 @@ def build_prompt_context(task_dict):
             "- The target arm follows the current command directly at the same step.\n"
             "- A delayed distractor may move according to a previous command instead of the current one.\n"
             "- An inverted distractor moves in the opposite joint direction.\n"
-            "- Other distractors may swap joints, smooth the command, or move randomly."
+            "- Candidate position is stratified independently from behavior role; do not assume a role from left/right position.\n"
+            "- Command names describe joint-axis signs, not necessarily screen-space left/up/down directions."
         )
         reasoning_steps = (
-            "1. First inspect the motion-difference image; it is the most important image for this step.\n"
-            "2. Evaluate every candidate separately instead of locking onto an earlier answer.\n"
-            "3. Check whether each candidate moves immediately in the commanded joint direction.\n"
-            "4. Reject candidates whose motion is delayed, inverted, random, swapped, or only partially follows the command."
+            "1. Inspect the per-candidate before/after/change evidence for each step.\n"
+            "2. Evaluate every candidate separately across the complete command sequence.\n"
+            f"3. Compare each candidate's visible response with the signed {joint_names} command deltas at the same step.\n"
+            "4. Reject a candidate if it is delayed or consistently moves with the opposite command sign.\n"
+            "5. Choose the candidate whose motion is best explained by direct same-step control over the whole episode."
         )
         answer_note = (
             "- The correct answer is the candidate whose visible motion is caused by the listed motor commands "
-            "without delay or transformation."
+            "without delay or sign inversion."
         )
 
     return {
@@ -250,6 +269,7 @@ def build_prompt_context(task_dict):
         "behavior_rules": behavior_rules,
         "reasoning_steps": reasoning_steps,
         "answer_note": answer_note,
+        "current_evidence_description": get_current_evidence_description(task_dict),
     }
 
 
@@ -259,7 +279,12 @@ def build_prompts(level, task_dict, max_image_history, answer_options=None):
     if answer_options is None:
         answer_options = get_answer_options(task_dict)
     visual_history_mode = task_dict.get("visual_history_mode", "observations")
-    if visual_history_mode == "motion_diffs":
+    if visual_history_mode == "candidate_motion_panels":
+        history_description = (
+            f"up to {max_image_history} previous candidate motion panels, "
+            "each paired with its command and ordered from oldest to newest"
+        )
+    elif visual_history_mode == "motion_diffs":
         history_description = (
             f"up to {max_image_history} previous motion-difference images, "
             "each paired with its command and ordered from oldest to newest"
@@ -332,14 +357,26 @@ def build_model_content(
 
     content_items = ["".join(text_blocks)]
     if visual_history:
-        if visual_history_mode == "motion_diffs":
+        if visual_history_mode in {"motion_diffs", "candidate_motion_panels"}:
+            if visual_history_mode == "candidate_motion_panels":
+                history_label = (
+                    "\nCandidate motion-panel history paired with its command, "
+                    "oldest to newest. Each panel shows BEFORE, AFTER, and "
+                    "SIGNED CHANGE crops for every candidate:\n"
+                )
+                image_label = "Candidate motion panel after"
+            else:
+                history_label = (
+                    "\nMotion-difference history paired with its command, "
+                    "oldest to newest:\n"
+                )
+                image_label = "Motion after"
             content_items.append(
-                "\nMotion-difference history paired with its command, "
-                "oldest to newest:\n"
+                history_label
             )
             for history_command, image in zip(command_history, visual_history):
                 content_items.append(
-                    f"\nMotion after {format_command(history_command, control_labels)}:\n"
+                    f"\n{image_label} {format_command(history_command, control_labels)}:\n"
                 )
                 content_items.append(image)
         else:
@@ -350,7 +387,13 @@ def build_model_content(
         content_items.append("\nVisual evidence history: none.\n")
 
     if motion_diff is not None:
-        content_items.append("\nMotion-difference image from previous view to current view:\n")
+        if visual_history_mode == "candidate_motion_panels":
+            content_items.append(
+                "\nCurrent candidate motion panel from previous view to current view "
+                "(BEFORE row, AFTER row, SIGNED CHANGE row; orange means newer bright pixels, blue means older bright pixels):\n"
+            )
+        else:
+            content_items.append("\nMotion-difference image from previous view to current view:\n")
         content_items.append(motion_diff)
 
     content_items.append("\nCurrent view after the current command:\n")
@@ -440,6 +483,131 @@ def make_motion_diff(
     overlay[:, :, 2] = 40
     base[mask] = overlay[mask]
     return annotate_candidates(base, num_candidates) if annotate else base
+
+
+def _resize_image(image, size, nearest=False):
+    resampling_class = getattr(Image, "Resampling", Image)
+    resampling = resampling_class.NEAREST if nearest else resampling_class.BILINEAR
+    return Image.fromarray(image[:, :, :3], mode="RGB").resize(size, resampling)
+
+
+def _candidate_strip(image, candidate_index, num_candidates):
+    image = np.asarray(image[:, :, :3], dtype=np.uint8)
+    width = image.shape[1]
+    left = int(round(width * (candidate_index - 1) / num_candidates))
+    right = int(round(width * candidate_index / num_candidates))
+    return image[:, left:right, :]
+
+
+def _signed_change_image(previous, current):
+    previous = np.asarray(previous[:, :, :3], dtype=np.int16)
+    current = np.asarray(current[:, :, :3], dtype=np.int16)
+    delta = current - previous
+    abs_delta = np.abs(delta)
+    strongest_channel = np.argmax(abs_delta, axis=2)
+    signed_delta = np.take_along_axis(
+        delta,
+        strongest_channel[:, :, None],
+        axis=2,
+    ).squeeze(axis=2)
+    motion_mask = abs_delta.max(axis=2) > 18
+
+    base = np.clip(current * 0.34 + previous * 0.12, 0, 255).astype(np.uint8)
+    newer_pixels = motion_mask & (signed_delta >= 0)
+    older_pixels = motion_mask & (signed_delta < 0)
+    base[newer_pixels] = np.array([255, 132, 36], dtype=np.uint8)
+    base[older_pixels] = np.array([52, 128, 255], dtype=np.uint8)
+    return base
+
+
+def make_candidate_motion_panel(
+    previous_image,
+    current_image,
+    num_candidates,
+    annotate=True,
+):
+    del annotate
+    previous = np.asarray(previous_image[:, :, :3], dtype=np.uint8)
+    current = np.asarray(current_image[:, :, :3], dtype=np.uint8)
+    if previous.shape != current.shape:
+        return current_image
+
+    height, width = current.shape[:2]
+    row_label_width = max(96, width // 10)
+    panel_width = width
+    label_height = max(32, height // 28)
+    tile_width = panel_width // num_candidates
+    tile_height = max(1, (height - label_height) // 3)
+    panel_height = label_height + tile_height * 3
+
+    panel = Image.new(
+        "RGB",
+        (row_label_width + tile_width * num_candidates, panel_height),
+        (12, 18, 24),
+    )
+    draw = ImageDraw.Draw(panel)
+
+    row_labels = ["BEFORE", "AFTER", "SIGNED CHANGE"]
+    for candidate_index in range(1, num_candidates + 1):
+        x = row_label_width + (candidate_index - 1) * tile_width
+        draw.text(
+            (x + 8, max(6, label_height // 4)),
+            f"candidate {candidate_index}",
+            fill=(255, 255, 255),
+        )
+
+        previous_crop = _candidate_strip(previous, candidate_index, num_candidates)
+        current_crop = _candidate_strip(current, candidate_index, num_candidates)
+        change_crop = _signed_change_image(previous_crop, current_crop)
+        crops = [previous_crop, current_crop, change_crop]
+
+        for row_index, crop in enumerate(crops):
+            y = label_height + row_index * tile_height
+            tile = _resize_image(
+                crop,
+                (tile_width, tile_height),
+                nearest=row_index == 2,
+            )
+            panel.paste(tile, (x, y))
+
+        draw.line(
+            [(x, 0), (x, panel_height)],
+            fill=(255, 255, 255),
+            width=1,
+        )
+
+    for row_index, label in enumerate(row_labels):
+        y = label_height + row_index * tile_height
+        draw.text(
+            (8, y + max(6, tile_height // 2 - 6)),
+            label,
+            fill=(255, 255, 255),
+        )
+        draw.line(
+            [(0, y), (panel.size[0], y)],
+            fill=(255, 255, 255),
+            width=1,
+        )
+
+    legend = "signed change: orange=new/current pixels, blue=old/previous pixels"
+    legend_box = draw.textbbox((0, 0), legend)
+    legend_width = legend_box[2] - legend_box[0]
+    draw.rectangle(
+        [
+            4,
+            4,
+            min(panel.size[0] - 4, legend_width + 18),
+            min(label_height - 4, 28),
+        ],
+        fill=(0, 0, 0),
+    )
+    draw.text(
+        (10, 8),
+        legend,
+        fill=(255, 255, 255),
+    )
+
+    return np.asarray(panel)
 
 
 def save_args(
@@ -625,9 +793,14 @@ def run_inference(args):
             "visual_history_mode",
             "observations",
         )
-        if visual_history_mode not in {"observations", "motion_diffs"}:
+        if visual_history_mode not in {
+            "observations",
+            "motion_diffs",
+            "candidate_motion_panels",
+        }:
             raise ValueError(
-                "visual_history_mode must be observations or motion_diffs."
+                "visual_history_mode must be observations, motion_diffs, "
+                "or candidate_motion_panels."
             )
         identifier = create_identifier(args.model, paths["log_file_agent"])
         prompt_prefix, prompt_suffix = build_prompts(
@@ -674,12 +847,20 @@ def run_inference(args):
             if should_annotate_candidates:
                 obs = annotate_candidates(obs, task_dict["num_arms"])
             save_rgb(obs, paths["obs_dir"] / f"{step}_{command['name']}.png")
-            motion_diff = make_motion_diff(
-                previous_obs,
-                obs,
-                task_dict["num_arms"],
-                annotate=should_annotate_candidates,
-            )
+            if visual_history_mode == "candidate_motion_panels":
+                motion_diff = make_candidate_motion_panel(
+                    previous_obs,
+                    obs,
+                    task_dict["num_arms"],
+                    annotate=should_annotate_candidates,
+                )
+            else:
+                motion_diff = make_motion_diff(
+                    previous_obs,
+                    obs,
+                    task_dict["num_arms"],
+                    annotate=should_annotate_candidates,
+                )
             if motion_diff is not None:
                 save_rgb(motion_diff, paths["obs_dir"] / f"{step}_{command['name']}_motion.png")
             append_limited(command_history, command, max_steps)
@@ -734,7 +915,7 @@ def run_inference(args):
 
             history_item = (
                 motion_diff
-                if visual_history_mode == "motion_diffs"
+                if visual_history_mode in {"motion_diffs", "candidate_motion_panels"}
                 else obs
             )
             if image_history_limit > 0 and history_item is not None:

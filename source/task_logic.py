@@ -1,4 +1,5 @@
 import copy
+from itertools import permutations
 
 import numpy as np
 
@@ -89,6 +90,52 @@ def build_deranged_command_schedule(command_library, episode_steps, seed):
         if np.array_equal(applied, expected):
             raise RuntimeError("Deranged schedule contains an accidental match.")
     return schedule
+
+
+def build_multi_arm_role_assignment(num_arms, distractors, seed, target_index=None):
+    num_arms = int(num_arms)
+    if num_arms < 2:
+        raise ValueError("A multi-arm assignment requires at least two arms.")
+    if len(distractors) != num_arms - 1:
+        raise ValueError(
+            f"Expected {num_arms - 1} distractors for {num_arms} arms, "
+            f"got {len(distractors)}."
+        )
+
+    seed = int(seed)
+    if target_index is None:
+        target_zero_index = seed % num_arms
+    else:
+        target_zero_index = int(target_index) - 1
+        if not 0 <= target_zero_index < num_arms:
+            raise ValueError("target_index must be within [1, num_arms].")
+
+    remaining_positions = [
+        index for index in range(num_arms) if index != target_zero_index
+    ]
+    distractor_orders = list(permutations(range(len(distractors))))
+    order_index = (seed // num_arms) % len(distractor_orders)
+    distractor_order = distractor_orders[order_index]
+
+    direct_behavior = {
+        "behavior": "direct",
+        "desc": "the target arm that follows the motor command directly",
+    }
+    assignments = [None] * num_arms
+    assignments[target_zero_index] = {
+        "index": target_zero_index + 1,
+        "role": "target",
+        "behavior": copy.deepcopy(direct_behavior),
+    }
+
+    for position, distractor_index in zip(remaining_positions, distractor_order):
+        assignments[position] = {
+            "index": position + 1,
+            "role": "distractor",
+            "behavior": copy.deepcopy(distractors[distractor_index]),
+        }
+
+    return assignments
 
 
 def apply_mapped_behavior(behavior, target_delta, command_index, command_dim):

@@ -5,7 +5,7 @@ You are provided:
 - the current motor command,
 - a history of recent motor commands,
 - {history_description},
-- one motion-difference image that highlights what changed between the previous observation and the current observation,
+- one {current_evidence_description},
 - and one current observation image after the current command has been executed.
 """
 
@@ -39,7 +39,7 @@ Notes:
 PROMPT_PREFIX_L1 = """{task}
 {task_setup}
 
-Use the motor-command history, {history_description}, the current motion-difference image, and the current camera view to answer the task.
+Use the motor-command history, {history_description}, the current {current_evidence_description}, and the current camera view to answer the task.
 """
 
 

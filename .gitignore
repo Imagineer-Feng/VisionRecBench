@@ -26,6 +26,8 @@ logs/
 results/
 
 # Isaac Sim / generated artifacts
+nv_shadercache/
+**/nv_shadercache/
 *.usd
 *.usda
 *.usdc
