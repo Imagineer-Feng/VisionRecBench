@@ -58,6 +58,39 @@ def configure_binary_answers(answer_options, target_present, seed, shuffle=False
     return ordered, semantic_answer_index + 1
 
 
+def build_deranged_command_schedule(command_library, episode_steps, seed):
+    commands = np.asarray(command_library, dtype=float)
+    if commands.ndim != 2 or len(commands) < 2:
+        raise ValueError(
+            "A deranged command schedule requires at least two command vectors."
+        )
+    if len({tuple(command) for command in commands}) != len(commands):
+        raise ValueError(
+            "A deranged command schedule requires unique command vectors."
+        )
+
+    rng = np.random.default_rng(int(seed))
+    base_indices = np.arange(len(commands))
+    permutation = None
+    for _ in range(1000):
+        candidate = rng.permutation(base_indices)
+        if np.all(candidate != base_indices):
+            permutation = candidate
+            break
+    if permutation is None:
+        raise RuntimeError("Could not construct a deranged command schedule.")
+
+    schedule = [
+        commands[permutation[step % len(commands)]].copy()
+        for step in range(int(episode_steps))
+    ]
+    for step, applied in enumerate(schedule):
+        expected = commands[step % len(commands)]
+        if np.array_equal(applied, expected):
+            raise RuntimeError("Deranged schedule contains an accidental match.")
+    return schedule
+
+
 def apply_mapped_behavior(behavior, target_delta, command_index, command_dim):
     behavior_name = behavior["behavior"]
     if behavior_name == "mapped_direct":

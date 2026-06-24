@@ -1,4 +1,5 @@
 import argparse
+import copy
 import json
 import os
 import sys
@@ -148,30 +149,36 @@ def build_prompt_context(task_dict):
     if task_mode == "single_binary" and scene == 1:
         task_setup = (
             "You observe one visible robotic arm in an Isaac Sim scene. "
-            "The visible arm may be your own body, or it may be a non-self arm "
-            "that moves independently. Your job is to decide whether the visible "
-            "arm is yourself by comparing the camera images with the motor command."
+            "The visible arm may follow each motor command at the same step, "
+            "or it may execute a mismatched command stream containing comparable "
+            "motions in a different order. Decide whether the visible motion is "
+            "caused by the listed current command at each step."
         )
-        short_task_setup = "Decide whether the one visible robotic arm is yourself."
+        short_task_setup = (
+            "Decide whether the visible arm follows the listed command at each step."
+        )
         behavior_summary = task_dict.get(
             "behavior_family_desc",
             (
                 "- Self case: the visible arm follows the current motor command directly.\n"
-                "- Non-self case: the visible arm samples random motor commands independently."
+                "- Non-self case: the visible arm executes a mismatched command stream."
             ),
         )
         behavior_rules = (
-            "- Choose yes only when the visible arm's motion matches the listed command stream.\n"
-            "- Choose no when the visible motion is random, independent, or inconsistent with the command stream.\n"
-            "- A single static pose is not enough; use the motion-difference image and command history."
+            "- Evaluate same-step command-to-motion correspondence across the complete episode.\n"
+            "- Do not infer self merely because the arm moves often, uses the same action vocabulary, or reaches a plausible final pose.\n"
+            "- Choose the self option only when the visible response consistently matches the command listed for that same step.\n"
+            "- Choose the non-self option when the movements are systematically paired with different commands."
         )
         reasoning_steps = (
-            "1. Inspect the motion-difference image for the one visible arm.\n"
-            f"2. Compare the observed {joint_names} motion with the current command.\n"
-            "3. Use the recent command history to reject random or inconsistent motion.\n"
-            "4. Choose yes if the motion is command-caused; otherwise choose no."
+            "1. Inspect the motion-difference image associated with each step.\n"
+            f"2. Compare the observed {joint_names} response with that step's command.\n"
+            "3. Check the complete trace rather than judging from one coincidental movement or the final pose.\n"
+            "4. Decide self for consistent same-step correspondence, or non-self for a reordered or mismatched stream."
         )
-        answer_note = "- Option 1 means the visible arm is yourself; option 2 means it is not yourself."
+        answer_note = (
+            "- The option order may vary between episodes; read the option text before choosing."
+        )
     elif task_mode == "single_binary" and scene == 2:
         task_setup = (
             "You observe one visible robotic arm in a scrambled action space. "
@@ -254,12 +261,12 @@ def build_prompts(level, task_dict, max_image_history, answer_options=None):
     visual_history_mode = task_dict.get("visual_history_mode", "observations")
     if visual_history_mode == "motion_diffs":
         history_description = (
-            f"a history of the last {max_image_history} motion-difference images, "
-            "ordered from oldest to newest"
+            f"up to {max_image_history} previous motion-difference images, "
+            "each paired with its command and ordered from oldest to newest"
         )
     else:
         history_description = (
-            f"a visual history of the last {max_image_history} observations, "
+            f"a visual history of up to {max_image_history} previous observations, "
             "with visible arm numbers drawn above the arms"
         )
     prompt_prefix = PROMPTS[level][0].format(
@@ -327,13 +334,18 @@ def build_model_content(
     if visual_history:
         if visual_history_mode == "motion_diffs":
             content_items.append(
-                "\nMotion-difference history, oldest to newest; "
-                "each image corresponds to the command at the same history position:\n"
+                "\nMotion-difference history paired with its command, "
+                "oldest to newest:\n"
             )
+            for history_command, image in zip(command_history, visual_history):
+                content_items.append(
+                    f"\nMotion after {format_command(history_command, control_labels)}:\n"
+                )
+                content_items.append(image)
         else:
             content_items.append("\nVisual history, oldest to newest:\n")
-        for image in visual_history:
-            content_items.append(image)
+            for image in visual_history:
+                content_items.append(image)
     else:
         content_items.append("\nVisual evidence history: none.\n")
 
@@ -502,7 +514,14 @@ def append_step_log(log_file, step, command, identification, correct, applied_co
         f.write(f"Applied Commands By Candidate: {json.dumps(applied_commands)}\n\n")
 
 
-def calculate_metrics(tag, task_dict, env, predictions, bad_response_count):
+def calculate_metrics(
+    tag,
+    task_dict,
+    env,
+    predictions,
+    action_trace,
+    bad_response_count,
+):
     prediction_steps = len(predictions)
     action_steps = predictions[-1]["step"] if predictions else 0
     correct_flags = [item["choice"] == env.answer_index for item in predictions]
@@ -537,6 +556,7 @@ def calculate_metrics(tag, task_dict, env, predictions, bad_response_count):
         "majority_correct": majority_choice == env.answer_index,
         "first_correct_step": first_correct_step,
         "bad_response": bad_response_count,
+        "action_trace": action_trace,
         "predictions": predictions,
     }
 
@@ -629,6 +649,7 @@ def run_inference(args):
         )
 
         predictions = []
+        action_trace = []
         command_history = []
         visual_history = (
             [initial_obs]
@@ -642,6 +663,13 @@ def run_inference(args):
             command["control_labels"] = control_labels
             progress(f"step {step}/{max_steps}: applying {command['name']}")
             obs, applied_commands = env.step(command)
+            action_trace.append(
+                {
+                    "step": step,
+                    "command": copy.deepcopy(command),
+                    "applied_commands": copy.deepcopy(applied_commands),
+                }
+            )
             obs = save_rgb(obs, paths["obs_dir"] / f"{step}_{command['name']}_raw.png")
             if should_annotate_candidates:
                 obs = annotate_candidates(obs, task_dict["num_arms"])
@@ -724,6 +752,7 @@ def run_inference(args):
                     task_dict,
                     env,
                     predictions,
+                    action_trace,
                     bad_response_count,
                 ),
                 f,

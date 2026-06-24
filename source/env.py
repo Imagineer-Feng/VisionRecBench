@@ -17,6 +17,7 @@ from pxr import Gf, Sdf, UsdGeom, UsdLux, UsdShade
 from source.render_config import RENDER_CONFIG
 from source.task_logic import (
     apply_mapped_behavior,
+    build_deranged_command_schedule,
     configure_binary_answers,
     materialize_mapping_behavior,
     select_behavior_option,
@@ -268,6 +269,7 @@ class VisionRecBenchEnv:
                 "base_pos": base_pos,
                 "joints": self.initial_joints.copy(),
                 "smooth_command": np.zeros(self.command_dim),
+                "command_schedule": None,
                 "xforms": {},
                 "articulation": None,
                 "control_indices": None,
@@ -475,6 +477,14 @@ class VisionRecBenchEnv:
         for arm in self.arms:
             arm["joints"] = self.initial_joints.copy()
             arm["smooth_command"] = np.zeros(self.command_dim)
+            if arm["behavior"]["behavior"] == "sequence_derangement":
+                arm["command_schedule"] = build_deranged_command_schedule(
+                    self.command_library,
+                    episode_steps=self.episode_steps,
+                    seed=int(self.task_dict.get("seed", 0)),
+                )
+            else:
+                arm["command_schedule"] = None
             if self.arm_root == "panda":
                 self._initialize_panda_controls(arm)
             self._update_arm_pose(arm)
@@ -590,6 +600,15 @@ class VisionRecBenchEnv:
         if behavior == "random":
             random_index = int(self.rng.integers(0, len(self.command_library)))
             return self.command_library[random_index]
+
+        if behavior == "sequence_derangement":
+            schedule = arm.get("command_schedule")
+            if not schedule:
+                raise RuntimeError(
+                    "sequence_derangement command schedule was not initialized."
+                )
+            command_index = len(self.command_memory) - 1
+            return schedule[command_index % len(schedule)]
 
         raise ValueError(f"Unsupported distractor behavior: {behavior}")
 

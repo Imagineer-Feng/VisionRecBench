@@ -33,13 +33,14 @@ def parse_choice(text):
     if not text:
         return -1
 
+    normalized = re.sub(r"[*_`#]", "", text)
     patterns = [
         r"Choice\s*:?\s*\[?\s*(\d+)\s*\]?",
         r"candidate\s+arm\s+(\d+)",
         r"candidate\s+(\d+)",
     ]
     for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
+        match = re.search(pattern, normalized, re.IGNORECASE)
         if match:
             return int(match.group(1))
     return -1

@@ -11,6 +11,8 @@
             "yes, the visible arm is myself",
             "no, the visible arm is not myself"
         ],
+        "shuffle_answer_options": true,
+        "annotate_candidates": false,
         "layout_spacing": 1.45,
         "floor_width": 3.6,
         "floor_depth": 2.8,
@@ -31,7 +33,10 @@
         "camera_focal": 2.35,
         "episode_steps": 8,
         "seed": 101,
-        "behavior_family_desc": "- Self case: the visible arm follows the current motor command directly.\n- Non-self case: the visible arm samples random motor commands independently.",
+        "judge_interval_steps": 8,
+        "judge_start_step": 8,
+        "visual_history_mode": "motion_diffs",
+        "behavior_family_desc": "- Self case: every visible movement follows the motor command listed for that same step.\n- Non-self case: the arm executes the same overall command set in a different order, so its total motion budget is comparable but each visible movement is paired with the wrong current command.",
         "command_sequence": [
             {"name": "base_yaw_left", "delta": [1, 0, 0, 0]},
             {"name": "shoulder_up", "delta": [0, 1, 0, 0]},
@@ -43,18 +48,23 @@
             {"name": "base_yaw_left_wrist_raise", "delta": [1, 0, 0, 1]}
         ]
     },
-    "scene1_single_random": {
+    "scene1_single_deranged": {
         "track": "Robot",
         "scene": 1,
         "task_mode": "single_binary",
         "arm": "panda_arm",
         "num_arms": 1,
         "target_present": false,
-        "visible_arm_behavior": "random",
+        "visible_arm_behavior": {
+            "behavior": "sequence_derangement",
+            "desc": "a non-self arm that executes the same command set in a deranged order, with no step matching the current motor command"
+        },
         "answer_options": [
             "yes, the visible arm is myself",
             "no, the visible arm is not myself"
         ],
+        "shuffle_answer_options": true,
+        "annotate_candidates": false,
         "layout_spacing": 1.45,
         "floor_width": 3.6,
         "floor_depth": 2.8,
@@ -75,7 +85,10 @@
         "camera_focal": 2.35,
         "episode_steps": 8,
         "seed": 102,
-        "behavior_family_desc": "- Self case: the visible arm follows the current motor command directly.\n- Non-self case: the visible arm samples random motor commands independently.",
+        "judge_interval_steps": 8,
+        "judge_start_step": 8,
+        "visual_history_mode": "motion_diffs",
+        "behavior_family_desc": "- Self case: every visible movement follows the motor command listed for that same step.\n- Non-self case: the arm executes the same overall command set in a different order, so its total motion budget is comparable but each visible movement is paired with the wrong current command.",
         "command_sequence": [
             {"name": "base_yaw_left", "delta": [1, 0, 0, 0]},
             {"name": "shoulder_up", "delta": [0, 1, 0, 0]},
@@ -87,20 +100,29 @@
             {"name": "base_yaw_left_wrist_raise", "delta": [1, 0, 0, 1]}
         ]
     },
-    "scene1_single_direct_or_random": {
+    "scene1_single_command_causality": {
         "track": "Robot",
         "scene": 1,
         "task_mode": "single_binary",
         "arm": "panda_arm",
         "num_arms": 1,
+        "behavior_selection": "seed_modulo",
         "visible_arm_behavior_options": [
             {"target_present": true, "behavior": "direct"},
-            {"target_present": false, "behavior": "random"}
+            {
+                "target_present": false,
+                "behavior": {
+                    "behavior": "sequence_derangement",
+                    "desc": "a non-self arm that executes the same command set in a deranged order, with no step matching the current motor command"
+                }
+            }
         ],
         "answer_options": [
             "yes, the visible arm is myself",
             "no, the visible arm is not myself"
         ],
+        "shuffle_answer_options": true,
+        "annotate_candidates": false,
         "layout_spacing": 1.45,
         "floor_width": 3.6,
         "floor_depth": 2.8,
@@ -121,7 +143,10 @@
         "camera_focal": 2.35,
         "episode_steps": 8,
         "seed": 103,
-        "behavior_family_desc": "- Self case: the visible arm follows the current motor command directly.\n- Non-self case: the visible arm samples random motor commands independently.",
+        "judge_interval_steps": 8,
+        "judge_start_step": 8,
+        "visual_history_mode": "motion_diffs",
+        "behavior_family_desc": "- Self case: every visible movement follows the motor command listed for that same step.\n- Non-self case: the arm executes the same overall command set in a different order, so its total motion budget is comparable but each visible movement is paired with the wrong current command.",
         "command_sequence": [
             {"name": "base_yaw_left", "delta": [1, 0, 0, 0]},
             {"name": "shoulder_up", "delta": [0, 1, 0, 0]},

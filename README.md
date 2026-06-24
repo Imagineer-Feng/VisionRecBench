@@ -2,7 +2,7 @@
 
 VisionRecBench is a standalone Isaac Sim benchmark for embodied self-recognition. The standard benchmark scenarios use a Franka Panda robotic arm loaded from the Isaac Sim asset library instead of the earlier simple procedural arm. It now supports three scenes:
 
-- Scene 1: one visible arm, binary self/non-self judgment. The arm either follows the motor command directly or moves with random independent commands.
+- Scene 1: one visible arm, binary same-step command-causality judgment. The self arm follows the current command directly; the non-self arm executes the same command set in a deranged order with no accidental same-step matches.
 - Scene 2: one visible arm under a scrambled action space. A four-command cycle repeats three times; the hidden mapping is either stable across all cycles (self) or changes between cycles (non-self).
 - Scene 3: the original multi-arm visual self-recognition task. One candidate arm is the target agent's own arm; the other candidates imitate the target through delayed, inverted, shuffled, smoothed, or random motor commands.
 
@@ -26,6 +26,7 @@ VisionRecBench/
     preprocess.py           # scenario/config loading
     prompts.py              # prompt difficulty levels 0-3
     render_config.py        # fixed renderer, resolution, and sampling settings
+    task_logic.py           # balanced sampling and command/mapping transformations
   tasks/
     arm_repo.json           # arm definitions; standard scenarios use panda_arm
     distractor_repo.json    # mimic behavior definitions
@@ -55,10 +56,30 @@ $ISAACSIM_ROOT/python.sh -m pip install openai==1.79.0
 
 `--scenario` selects the experimental condition. `--level` selects the prompt difficulty level from 0 to 3.
 
-Scene 1, direct self arm:
+Scene 1, balanced command-causality benchmark:
 
 ```shell
 cd VisionRecBench
+$ISAACSIM_ROOT/python.sh scripts/inference.py \
+  --scenario scene1_single_command_causality \
+  --level 1 \
+  --model gpt-4o \
+  --seed 0 \
+  --headless
+```
+
+For Scene 1, consecutive seeds alternate direct self and deranged-order
+non-self conditions. Both conditions use exactly the same command multiset and
+therefore the same total action budget; only same-step correspondence differs.
+Answer positions are balanced over every four consecutive seeds. The model
+receives the complete per-step motion-difference trace and makes one scored
+judgment after all eight actions. The legacy name
+`scene1_single_direct_or_random` remains accepted as an alias.
+
+The fixed `scene1_single_direct` and `scene1_single_deranged` scenarios remain
+available as diagnostic conditions:
+
+```shell
 $ISAACSIM_ROOT/python.sh scripts/inference.py \
   --scenario scene1_single_direct \
   --level 1 \
@@ -66,17 +87,8 @@ $ISAACSIM_ROOT/python.sh scripts/inference.py \
   --headless
 ```
 
-Scene 1, random non-self arm:
-
-```shell
-$ISAACSIM_ROOT/python.sh scripts/inference.py \
-  --scenario scene1_single_random \
-  --level 1 \
-  --model gpt-4o \
-  --headless
-```
-
-You can also use `scene1_single_direct_or_random` to sample either the direct self case or the random non-self case from the scenario seed.
+The legacy diagnostic name `scene1_single_random` remains accepted as an alias
+for `scene1_single_deranged`.
 
 Scene 2, balanced stable-versus-changing scrambled mapping:
 
@@ -148,15 +160,15 @@ chmod +x scripts/evaluate.sh
 
 Each run writes observations and logs to `logs/<timestamp>/` and metrics to `results/scene*/prompt_level*/<model>/<scenario>/`.
 The third argument is the number of runs per scenario, not the total number of
-runs. It must be divisible by four so Scene 2 has balanced labels and answer
-positions.
+runs. It must be divisible by four so Scenes 1 and 2 both have balanced labels
+and answer positions.
 
 ## Metrics
 
 The result JSON reports:
 
 - `accuracy`: fraction of model judgments where the model selected the correct answer option,
-- `prediction_steps`: number of LLM judgments made during the run; the rebuilt Scene 2 makes one judgment after all three four-action cycles,
+- `prediction_steps`: number of LLM judgments made during the run; rebuilt Scenes 1 and 2 each make one episode-level judgment,
 - `scene`: scene task family, independent of prompt difficulty,
 - `task_mode`: `single_binary` or `multi_arm`,
 - `answer_index` and `answer_options`: the answer option used for scoring,
@@ -165,5 +177,6 @@ The result JSON reports:
 - `majority_correct`: whether the majority selected option was correct,
 - `first_correct_step`: first step where the correct answer was selected,
 - `bad_response`: unparsable or out-of-range answers.
+- `action_trace`: every commanded and actually applied action, including steps that were not individually scored.
 
 The core score is `accuracy`; `final_correct` and `majority_correct` are useful when treating an episode as a single identification problem.
