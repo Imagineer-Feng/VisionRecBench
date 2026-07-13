@@ -619,5 +619,18 @@ class VisionRecBenchEnv:
 
         raise ValueError(f"Unsupported distractor behavior: {behavior}")
 
-    def close(self):
-        self.sim_app.close()
+    def close(self, close_simulation_app=True):
+        """Release this episode while optionally keeping Isaac Sim alive.
+
+        Dataset generation reuses one SimulationApp for many independent
+        episodes. Clearing the World singleton prevents prims, callbacks, and
+        physics state from leaking into the next episode.
+        """
+        try:
+            if getattr(self, "world", None) is not None:
+                self.world.stop()
+                self.world.clear()
+                World.clear_instance()
+        finally:
+            if close_simulation_app:
+                self.sim_app.close()

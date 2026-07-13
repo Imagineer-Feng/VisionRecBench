@@ -173,6 +173,81 @@ The third argument is the number of runs per scenario, not the total number of
 runs. It must be divisible by twelve so Scenes 1 and 2 have balanced binary
 labels/answer positions and Scene 3 has balanced target/role positions.
 
+## Frozen Offline Dataset Workflow
+
+For paper experiments, prefer the frozen dataset workflow over repeatedly
+rendering the same scene for every model call. It separates Isaac Sim episode
+generation from API evaluation, guarantees that every model receives identical
+images, and treats an episode rather than an API call as the experimental item.
+
+First inspect the deterministic 144-episode sampling plan without launching
+Isaac Sim:
+
+```shell
+python3 scripts/generate_dataset.py --plan-only
+```
+
+Generate 48 independent episodes per standard scene. The count must be
+divisible by 12 so labels, answer positions, Scene 2 mappings, and Scene 3 role
+positions remain balanced:
+
+```shell
+$ISAACSIM_ROOT/python.sh scripts/generate_dataset.py \
+  --output datasets/visionrecbench_robust_v1 \
+  --episodes-per-scene 48 \
+  --base-seed 0 \
+  --headless
+```
+
+The `robust_v1` profile deterministically varies command order and amplitude,
+initial joint pose, camera pose and focal length, lighting, floor color, and
+background color. Generation writes one immutable `episode.json` per episode,
+plus a dataset-wide `manifest.jsonl` and `metadata.json`. Every model-facing
+image stores its SHA-256 checksum and dimensions. Interrupted generation can be
+continued with `--resume`; completed episode signatures are checked before they
+are skipped.
+
+Validate structure, image readability, checksums, uniqueness, and balance:
+
+```shell
+python3 scripts/validate_dataset.py datasets/visionrecbench_robust_v1
+```
+
+Evaluate a model from the frozen files without starting Isaac Sim:
+
+```shell
+python3 scripts/evaluate_dataset.py \
+  --dataset datasets/visionrecbench_robust_v1 \
+  --model gpt-4o \
+  --level 1 \
+  --resume
+```
+
+Pass multiple prompt levels, for example `--level 0 1 2 3`, when running a
+prompt ablation. Offline results are written under
+`results/offline/<dataset>/<prompt-level>/<model>/<scenario>/`. Each result
+records the frozen dataset hash, exact multimodal input hash, raw response,
+parsed choice, label, and correctness. Use `--model random` for an API-free
+pipeline smoke test.
+
+Summarize completed results using independent episodes as the bootstrap unit:
+
+```shell
+python3 scripts/summarize_offline_results.py \
+  results/offline/visionrecbench_robust_v1 \
+  --output results/offline/visionrecbench_robust_v1/summary.json
+```
+
+The summary reports accuracy and invalid-response rate for every group,
+self/non-self recall, balanced accuracy and self-attribution rate for binary
+scenes, and per-position recall and prediction distributions for multi-arm
+scenes. Confidence intervals are episode-level bootstrap intervals rather than
+intervals over repeated API calls.
+
+The legacy `scripts/inference.py` entrypoint remains useful for interactive
+single-run debugging, but its repeated runs should not be counted as new
+benchmark items unless their physical/visual episode configurations differ.
+
 ## Metrics
 
 The result JSON reports:

@@ -331,6 +331,7 @@ def build_model_content(
     current_obs,
     judgement_interval=1,
     visual_history_mode="observations",
+    visual_history_commands=None,
 ):
     text_blocks = [
         prompt_prefix,
@@ -374,7 +375,20 @@ def build_model_content(
             content_items.append(
                 history_label
             )
-            for history_command, image in zip(command_history, visual_history):
+            if visual_history_commands is None:
+                history_count = len(visual_history)
+                visual_history_commands = command_history[
+                    max(0, len(command_history) - history_count - 1) : -1
+                ]
+            if len(visual_history_commands) != len(visual_history):
+                raise ValueError(
+                    "visual_history_commands must align one-to-one with "
+                    "visual_history."
+                )
+            for history_command, image in zip(
+                visual_history_commands,
+                visual_history,
+            ):
                 content_items.append(
                     f"\n{image_label} {format_command(history_command, control_labels)}:\n"
                 )
@@ -536,9 +550,10 @@ def make_candidate_motion_panel(
     row_label_width = max(96, width // 10)
     panel_width = width
     label_height = max(32, height // 28)
+    header_height = label_height * 2
     tile_width = panel_width // num_candidates
-    tile_height = max(1, (height - label_height) // 3)
-    panel_height = label_height + tile_height * 3
+    tile_height = max(1, (height - header_height) // 3)
+    panel_height = header_height + tile_height * 3
 
     panel = Image.new(
         "RGB",
@@ -551,7 +566,7 @@ def make_candidate_motion_panel(
     for candidate_index in range(1, num_candidates + 1):
         x = row_label_width + (candidate_index - 1) * tile_width
         draw.text(
-            (x + 8, max(6, label_height // 4)),
+            (x + 8, label_height + max(6, label_height // 4)),
             f"candidate {candidate_index}",
             fill=(255, 255, 255),
         )
@@ -562,7 +577,7 @@ def make_candidate_motion_panel(
         crops = [previous_crop, current_crop, change_crop]
 
         for row_index, crop in enumerate(crops):
-            y = label_height + row_index * tile_height
+            y = header_height + row_index * tile_height
             tile = _resize_image(
                 crop,
                 (tile_width, tile_height),
@@ -571,13 +586,13 @@ def make_candidate_motion_panel(
             panel.paste(tile, (x, y))
 
         draw.line(
-            [(x, 0), (x, panel_height)],
+            [(x, label_height), (x, panel_height)],
             fill=(255, 255, 255),
             width=1,
         )
 
     for row_index, label in enumerate(row_labels):
-        y = label_height + row_index * tile_height
+        y = header_height + row_index * tile_height
         draw.text(
             (8, y + max(6, tile_height // 2 - 6)),
             label,
@@ -605,6 +620,11 @@ def make_candidate_motion_panel(
         (10, 8),
         legend,
         fill=(255, 255, 255),
+    )
+    draw.line(
+        [(0, label_height), (panel.size[0], label_height)],
+        fill=(255, 255, 255),
+        width=1,
     )
 
     return np.asarray(panel)
@@ -884,6 +904,12 @@ def run_inference(args):
                     obs,
                     judgement_interval=judgement_interval,
                     visual_history_mode=visual_history_mode,
+                    visual_history_commands=command_history[
+                        max(0, len(command_history) - len(visual_history) - 1) : -1
+                    ]
+                    if visual_history_mode
+                    in {"motion_diffs", "candidate_motion_panels"}
+                    else None,
                 )
                 identification = identifier.identify(content_items, len(env.answer_options))
                 if not identification.valid:

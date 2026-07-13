@@ -24,6 +24,7 @@ scripts/setup_env.sh
 # Benchmark/runtime outputs
 logs/
 results/
+datasets/
 
 # Isaac Sim / generated artifacts
 nv_shadercache/
