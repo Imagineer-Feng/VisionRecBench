@@ -338,15 +338,15 @@ def validate_dataset(dataset_root, verify_checksums=True):
         "episode_count": len(rows),
         "scenario_counts": dict(counts),
         "answer_positions": {
-            scenario: dict(counter)
+            scenario: {str(key): value for key, value in counter.items()}
             for scenario, counter in answer_positions.items()
         },
         "target_positions": {
-            scenario: dict(counter)
+            scenario: {str(key): value for key, value in counter.items()}
             for scenario, counter in target_positions.items()
         },
         "target_presence": {
-            scenario: dict(counter)
+            scenario: {str(key): value for key, value in counter.items()}
             for scenario, counter in target_presence.items()
         },
         "mapping_options": {
