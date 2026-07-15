@@ -128,7 +128,6 @@ class OpenAIIdentifier(IdentifierBase):
                 completion = self.client.chat.completions.create(
                     model=self.model,
                     messages=messages,
-                    temperature=0.0,
                 )
                 return completion.choices[0].message.content
             except Exception as exc:
