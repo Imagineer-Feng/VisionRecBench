@@ -16,7 +16,7 @@ from source.task_logic import (
 STANDARD_SCENARIOS = (
     "scene1_single_command_causality",
     "scene2_single_scrambled_stability",
-    "scene3_triad_causal_identification",
+    "scene3_dyad_causal_identification",
 )
 
 SAMPLING_PROFILE = "robust_v1"

@@ -32,7 +32,7 @@ class EpisodeSamplingTest(unittest.TestCase):
             self.assertEqual(len(signatures), 48)
 
     def test_sampling_changes_commands_pose_camera_and_lighting(self):
-        scenario = "scene3_triad_causal_identification"
+        scenario = "scene3_dyad_causal_identification"
         base = construct({"scenario": scenario})
         sampled = build_episode_task(scenario, 0, base_seed=0)
         self.assertNotEqual(
@@ -100,7 +100,7 @@ class EpisodeSamplingTest(unittest.TestCase):
         behavior_positions = Counter()
         for index in range(48):
             task = build_episode_task(
-                "scene3_triad_causal_identification",
+                "scene3_dyad_causal_identification",
                 index,
                 base_seed=0,
             )
@@ -115,8 +115,18 @@ class EpisodeSamplingTest(unittest.TestCase):
                 if assignment["role"] == "target":
                     positions[assignment["index"]] += 1
 
-        self.assertEqual(set(positions.values()), {16})
-        self.assertEqual(set(behavior_positions.values()), {16})
+        self.assertEqual(positions, Counter({1: 24, 2: 24}))
+        self.assertEqual(
+            behavior_positions,
+            Counter(
+                {
+                    ("direct", 1): 24,
+                    ("direct", 2): 24,
+                    ("delay", 1): 24,
+                    ("delay", 2): 24,
+                }
+            ),
+        )
 
     def test_scene2_preserves_one_repeatable_four_command_cycle(self):
         task = build_episode_task(

@@ -31,7 +31,7 @@ INSTRUCTION_DICT = {
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scenario", type=str, default="scene3_triad_causal_identification")
+    parser.add_argument("--scenario", type=str, default="scene3_dyad_causal_identification")
     parser.add_argument(
         "--arm",
         type=str,
@@ -228,39 +228,81 @@ def build_prompt_context(task_dict):
             "- The option order may vary between episodes; read the option text before choosing."
         )
     else:
-        task_setup = (
-            f"You observe {num_arms} visually similar robotic arms in an Isaac Sim scene. "
-            "Exactly one candidate arm is your own body. The other arms are distractors that imitate "
-            "your motion with transformed command streams. Candidate arms are ordered from left to right "
-            f"in the image: candidate 1 is the leftmost arm and candidate {num_arms} is the rightmost arm. "
-            "The target, delayed, and inverted roles are independently assigned to positions by seed, "
-            "so left/right position alone is not evidence."
-        )
-        short_task_setup = (
-            f"Identify which of the {num_arms} left-to-right candidate robotic arms is yourself."
-        )
-        distractor_summary = "\n".join(
-            f"- {item['desc']}" for item in task_dict.get("distractors", [])
-        )
-        behavior_summary = task_dict.get("behavior_family_desc", distractor_summary)
-        behavior_rules = (
-            "- The target arm follows the current command directly at the same step.\n"
-            "- A delayed distractor may move according to a previous command instead of the current one.\n"
-            "- An inverted distractor moves in the opposite joint direction.\n"
-            "- Candidate position is stratified independently from behavior role; do not assume a role from left/right position.\n"
-            "- Command names describe joint-axis signs, not necessarily screen-space left/up/down directions."
-        )
-        reasoning_steps = (
-            "1. Inspect the per-candidate before/after/change evidence for each step.\n"
-            "2. Evaluate every candidate separately across the complete command sequence.\n"
-            f"3. Compare each candidate's visible response with the signed {joint_names} command deltas at the same step.\n"
-            "4. Reject a candidate if it is delayed or consistently moves with the opposite command sign.\n"
-            "5. Choose the candidate whose motion is best explained by direct same-step control over the whole episode."
-        )
-        answer_note = (
-            "- The correct answer is the candidate whose visible motion is caused by the listed motor commands "
-            "without delay or sign inversion."
-        )
+        distractor_behaviors = {
+            item.get("behavior") for item in task_dict.get("distractors", [])
+        }
+        is_delay_dyad = num_arms == 2 and distractor_behaviors == {"delay"}
+        if is_delay_dyad:
+            task_setup = (
+                "You observe two visually similar robotic arms in an Isaac Sim scene. "
+                "Exactly one candidate arm is your own body and follows the current motor "
+                "command at the same step. The other arm is a one-step-delayed distractor: "
+                "it follows the previous step's command and remains still on the first step. "
+                "Candidate 1 is the left arm and candidate 2 is the right arm. Self and "
+                "delay roles are balanced across positions by seed, so left/right position "
+                "alone is not evidence."
+            )
+            short_task_setup = (
+                "Identify which of the two candidate robotic arms follows the current "
+                "command rather than the previous command."
+            )
+            behavior_summary = task_dict.get(
+                "behavior_family_desc",
+                (
+                    "- Self candidate: follows the current motor command at the same step.\n"
+                    "- Delay distractor: follows the previous step's command."
+                ),
+            )
+            behavior_rules = (
+                "- The self arm follows the current command directly at the same step.\n"
+                "- The delayed arm stays still on step 1, then follows the command from one step earlier.\n"
+                "- Candidate position is balanced independently from behavior role; do not assume a role from left/right position.\n"
+                "- Command names describe joint-axis signs, not necessarily screen-space left/up/down directions."
+            )
+            reasoning_steps = (
+                "1. Inspect the before/after/change evidence for both candidates at every step.\n"
+                f"2. Compare each candidate's visible response with the current signed {joint_names} command deltas.\n"
+                "3. Check whether the other candidate is better explained by the previous step's command.\n"
+                "4. Choose the candidate that consistently follows the current command over the complete episode."
+            )
+            answer_note = (
+                "- The correct answer is the candidate controlled by the current command, not the one-step-delayed command."
+            )
+        else:
+            # Preserve the legacy multi-arm prompt for frozen three-arm records.
+            task_setup = (
+                f"You observe {num_arms} visually similar robotic arms in an Isaac Sim scene. "
+                "Exactly one candidate arm is your own body. The other arms are distractors that imitate "
+                "your motion with transformed command streams. Candidate arms are ordered from left to right "
+                f"in the image: candidate 1 is the leftmost arm and candidate {num_arms} is the rightmost arm. "
+                "The target, delayed, and inverted roles are independently assigned to positions by seed, "
+                "so left/right position alone is not evidence."
+            )
+            short_task_setup = (
+                f"Identify which of the {num_arms} left-to-right candidate robotic arms is yourself."
+            )
+            distractor_summary = "\n".join(
+                f"- {item['desc']}" for item in task_dict.get("distractors", [])
+            )
+            behavior_summary = task_dict.get("behavior_family_desc", distractor_summary)
+            behavior_rules = (
+                "- The target arm follows the current command directly at the same step.\n"
+                "- A delayed distractor may move according to a previous command instead of the current one.\n"
+                "- An inverted distractor moves in the opposite joint direction.\n"
+                "- Candidate position is stratified independently from behavior role; do not assume a role from left/right position.\n"
+                "- Command names describe joint-axis signs, not necessarily screen-space left/up/down directions."
+            )
+            reasoning_steps = (
+                "1. Inspect the per-candidate before/after/change evidence for each step.\n"
+                "2. Evaluate every candidate separately across the complete command sequence.\n"
+                f"3. Compare each candidate's visible response with the signed {joint_names} command deltas at the same step.\n"
+                "4. Reject a candidate if it is delayed or consistently moves with the opposite command sign.\n"
+                "5. Choose the candidate whose motion is best explained by direct same-step control over the whole episode."
+            )
+            answer_note = (
+                "- The correct answer is the candidate whose visible motion is caused by the listed motor commands "
+                "without delay or sign inversion."
+            )
 
     return {
         "task_setup": task_setup,

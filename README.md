@@ -4,7 +4,7 @@ VisionRecBench is a standalone Isaac Sim benchmark for embodied self-recognition
 
 - Scene 1: one visible arm, binary same-step command-causality judgment. The self arm follows the current command directly; the non-self arm executes the same command set in a deranged order with no accidental same-step matches.
 - Scene 2: one visible arm under a scrambled action space. A four-command cycle repeats three times; the hidden mapping is either stable across all cycles (self) or changes between cycles (non-self).
-- Scene 3: a balanced multi-arm visual self-recognition task. One candidate arm is the target agent's own arm; delayed and inverted distractors are independently stratified across left-to-right positions.
+- Scene 3: a balanced two-arm visual self-recognition task. One candidate is the target agent's own arm and follows the current command; the other follows the previous command with a one-step delay. Self and delay roles are balanced across left-to-right positions.
 
 The agent receives:
 
@@ -109,26 +109,28 @@ receives the complete sequence of per-action motion-difference images and makes
 one scored judgment after all three cycles. Single-arm Scene 2 images omit the
 otherwise-unnecessary candidate number marker to avoid an Option 1 visual bias.
 
-Scene 3, balanced three-arm causal-identification task:
+Scene 3, balanced two-arm causal-identification task:
 
 ```shell
 cd VisionRecBench
 $ISAACSIM_ROOT/python.sh scripts/inference.py \
-  --scenario scene3_triad_causal_identification \
+  --scenario scene3_dyad_causal_identification \
   --level 1 \
   --model gpt-4o \
   --seed 0 \
   --headless
 ```
 
-For Scene 3, consecutive seeds stratify the target candidate position, and the
-delay/invert distractor roles are independently permuted across the remaining
-positions. Six consecutive seeds cover all three target positions and both
-distractor orderings; the legacy name `scene3_triad_delay_invert` remains
-accepted as an alias. The model receives per-candidate motion panels for every
-step: each panel contains before, after, and signed-change crops for every
-candidate arm. Scene 3 now makes one scored judgment after the full eight-action
-diagnostic sequence instead of scoring every early step.
+For Scene 3, one candidate follows the current command directly and the other
+follows the previous step's command. The delayed candidate remains still on the
+first step because no previous command exists. Consecutive seeds alternate the
+self and delay roles across the two left-to-right positions, so two consecutive
+seeds cover both target positions. The old names
+`scene3_triad_causal_identification` and `scene3_triad_delay_invert` remain
+accepted as compatibility aliases. The model receives per-candidate motion
+panels for every step: each panel contains before, after, and signed-change crops
+for both candidates. Scene 3 makes one scored judgment after the full
+eight-action diagnostic sequence.
 
 Random baseline:
 
@@ -146,7 +148,7 @@ The default run uses `PathTracing`, 1024x1024 observations, 16 samples per pixel
 
 `scripts/inference.py` accepts these runtime options:
 
-- `--scenario`: scenario name from `tasks/scenario_repo.json`, default `scene3_triad_causal_identification`.
+- `--scenario`: scenario name from `tasks/scenario_repo.json`, default `scene3_dyad_causal_identification`.
 - `--arm`: advanced arm definition override from `tasks/arm_repo.json`. Standard benchmark scenarios are configured to use `panda_arm`.
 - `--level`: prompt difficulty level, one of `0`, `1`, `2`, or `3`, default `1`. This is separate from the scenario's `scene`.
 - `--model`: model name to evaluate, or `random` for the random baseline. This option is required.
@@ -180,6 +182,11 @@ rendering the same scene for every model call. It separates Isaac Sim episode
 generation from API evaluation, guarantees that every model receives identical
 images, and treats an episode rather than an API call as the experimental item.
 
+The default dataset name is `visionrecbench_robust_v2` because Scene 3 changed
+from the legacy three-arm design to the two-arm self-versus-delay design. Existing
+`visionrecbench_robust_v1` files remain immutable legacy data and should not be
+mixed with newly generated episodes.
+
 First inspect the deterministic 144-episode sampling plan without launching
 Isaac Sim:
 
@@ -193,7 +200,7 @@ positions remain balanced:
 
 ```shell
 $ISAACSIM_ROOT/python.sh scripts/generate_dataset.py \
-  --output datasets/visionrecbench_robust_v1 \
+  --output datasets/visionrecbench_robust_v2 \
   --episodes-per-scene 48 \
   --base-seed 0 \
   --headless
@@ -210,14 +217,14 @@ are skipped.
 Validate structure, image readability, checksums, uniqueness, and balance:
 
 ```shell
-python3 scripts/validate_dataset.py datasets/visionrecbench_robust_v1
+python3 scripts/validate_dataset.py datasets/visionrecbench_robust_v2
 ```
 
 Evaluate a model from the frozen files without starting Isaac Sim:
 
 ```shell
 python3 scripts/evaluate_dataset.py \
-  --dataset datasets/visionrecbench_robust_v1 \
+  --dataset datasets/visionrecbench_robust_v2 \
   --model gpt-4o \
   --level 1 \
   --resume
@@ -234,8 +241,8 @@ Summarize completed results using independent episodes as the bootstrap unit:
 
 ```shell
 python3 scripts/summarize_offline_results.py \
-  results/offline/visionrecbench_robust_v1 \
-  --output results/offline/visionrecbench_robust_v1/summary.json
+  results/offline/visionrecbench_robust_v2 \
+  --output results/offline/visionrecbench_robust_v2/summary.json
 ```
 
 The summary reports accuracy and invalid-response rate for every group,

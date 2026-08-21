@@ -10,18 +10,28 @@ from source.task_logic import build_multi_arm_role_assignment
 
 class Scene3LogicTest(unittest.TestCase):
     def setUp(self):
-        self.task = construct({"scenario": "scene3_triad_causal_identification"})
+        self.task = construct({"scenario": "scene3_dyad_causal_identification"})
 
-    def test_legacy_name_resolves_to_new_scene(self):
-        task = construct({"scenario": "scene3_triad_delay_invert"})
-        self.assertEqual(task["name"], "scene3_triad_causal_identification")
-        self.assertEqual(task["requested_name"], "scene3_triad_delay_invert")
+    def test_legacy_names_resolve_to_dyad_scene(self):
+        for legacy_name in (
+            "scene3_triad_causal_identification",
+            "scene3_triad_delay_invert",
+        ):
+            task = construct({"scenario": legacy_name})
+            self.assertEqual(task["name"], "scene3_dyad_causal_identification")
+            self.assertEqual(task["requested_name"], legacy_name)
 
-    def test_six_consecutive_seeds_balance_target_and_distractor_positions(self):
+    def test_scene_contains_self_and_one_step_delay_only(self):
+        self.assertEqual(self.task["num_arms"], 2)
+        self.assertEqual(len(self.task["distractors"]), 1)
+        self.assertEqual(self.task["distractors"][0]["behavior"], "delay")
+        self.assertEqual(self.task["distractors"][0]["delay"], 1)
+
+    def test_two_consecutive_seeds_balance_self_and_delay_positions(self):
         target_positions = []
         behavior_positions = defaultdict(list)
 
-        for seed in range(6):
+        for seed in range(2):
             assignments = build_multi_arm_role_assignment(
                 self.task["num_arms"],
                 self.task["distractors"],
@@ -33,16 +43,15 @@ class Scene3LogicTest(unittest.TestCase):
                 if item["role"] == "target":
                     target_positions.append(item["index"])
 
-        self.assertEqual(Counter(target_positions), Counter({1: 2, 2: 2, 3: 2}))
-        self.assertEqual(Counter(behavior_positions["direct"]), Counter({1: 2, 2: 2, 3: 2}))
-        self.assertEqual(Counter(behavior_positions["delay"]), Counter({1: 2, 2: 2, 3: 2}))
-        self.assertEqual(Counter(behavior_positions["invert"]), Counter({1: 2, 2: 2, 3: 2}))
+        self.assertEqual(Counter(target_positions), Counter({1: 1, 2: 1}))
+        self.assertEqual(Counter(behavior_positions["direct"]), Counter({1: 1, 2: 1}))
+        self.assertEqual(Counter(behavior_positions["delay"]), Counter({1: 1, 2: 1}))
+        self.assertNotIn("invert", behavior_positions)
 
-    def test_target_override_keeps_target_fixed_but_still_permutates_distractors(self):
+    def test_target_override_places_delay_in_other_position(self):
         delay_positions = []
-        invert_positions = []
 
-        for seed in range(6):
+        for seed in range(4):
             assignments = build_multi_arm_role_assignment(
                 self.task["num_arms"],
                 self.task["distractors"],
@@ -54,11 +63,8 @@ class Scene3LogicTest(unittest.TestCase):
                 behavior = item["behavior"]["behavior"]
                 if behavior == "delay":
                     delay_positions.append(item["index"])
-                elif behavior == "invert":
-                    invert_positions.append(item["index"])
 
-        self.assertEqual(Counter(delay_positions), Counter({1: 3, 3: 3}))
-        self.assertEqual(Counter(invert_positions), Counter({1: 3, 3: 3}))
+        self.assertEqual(Counter(delay_positions), Counter({1: 4}))
 
     def test_scene_judges_once_after_complete_diagnostic_sequence(self):
         self.assertEqual(self.task["episode_steps"], 8)
@@ -77,6 +83,9 @@ class Scene3LogicTest(unittest.TestCase):
         self.assertIn("candidate motion panel", prompt)
         self.assertIn("left/right position alone is not evidence", prompt)
         self.assertIn("joint-axis signs", prompt)
+        self.assertIn("one-step-delayed", prompt)
+        self.assertIn("previous step's command", prompt)
+        self.assertNotIn("inverted distractor", prompt.lower())
         self.assertNotIn("current motion-difference image", prompt)
 
     def test_candidate_motion_panel_contains_before_after_and_signed_change(self):
@@ -88,7 +97,7 @@ class Scene3LogicTest(unittest.TestCase):
         panel = make_candidate_motion_panel(
             previous,
             current,
-            num_candidates=3,
+            num_candidates=2,
             annotate=True,
         )
 

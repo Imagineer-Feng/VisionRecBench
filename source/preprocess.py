@@ -21,7 +21,8 @@ SCENARIO_ALIASES = {
     "scene1_single_direct_or_random": "scene1_single_command_causality",
     "scene1_single_random": "scene1_single_deranged",
     "scene2_single_scrambled_fixed": "scene2_single_scrambled_stability",
-    "scene3_triad_delay_invert": "scene3_triad_causal_identification",
+    "scene3_triad_causal_identification": "scene3_dyad_causal_identification",
+    "scene3_triad_delay_invert": "scene3_dyad_causal_identification",
 }
 
 

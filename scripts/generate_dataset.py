@@ -48,11 +48,11 @@ def parse_args():
     parser.add_argument(
         "--output",
         type=Path,
-        default=BASE_DIR / "datasets" / "visionrecbench_robust_v1",
+        default=BASE_DIR / "datasets" / "visionrecbench_robust_v2",
     )
     parser.add_argument(
         "--dataset-name",
-        default="visionrecbench_robust_v1",
+        default="visionrecbench_robust_v2",
     )
     parser.add_argument(
         "--scenario",
