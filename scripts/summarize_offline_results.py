@@ -39,11 +39,10 @@ def load_offline_results(root):
             "dataset_content_sha256",
             "episode_id",
             "model",
-            "prompt_level",
             "scenario",
             "correct",
         }
-        if required.issubset(row):
+        if required.issubset(row) and "difficulty_level" in row:
             rows.append(row)
     return rows
 
@@ -60,14 +59,14 @@ def main():
             row["dataset_name"],
             row["dataset_content_sha256"],
             row["model"],
-            int(row["prompt_level"]),
+            int(row["difficulty_level"]),
             row["scenario"],
         )
         groups[key].append(row)
 
     summaries = []
     for group_index, (key, group_rows) in enumerate(sorted(groups.items())):
-        dataset_name, dataset_hash, model, prompt_level, scenario = key
+        dataset_name, dataset_hash, model, level, scenario = key
         metrics = summarize_result_group(
             group_rows,
             bootstrap_samples=args.bootstrap_samples,
@@ -78,7 +77,7 @@ def main():
                 "dataset_name": dataset_name,
                 "dataset_content_sha256": dataset_hash,
                 "model": model,
-                "prompt_level": prompt_level,
+                "difficulty_level": level,
                 "scenario": scenario,
                 **metrics,
             }
@@ -90,7 +89,7 @@ def main():
             summary["dataset_name"],
             summary["dataset_content_sha256"],
             summary["model"],
-            summary["prompt_level"],
+            summary["difficulty_level"],
         )
         primary_score = summary.get(
             "balanced_accuracy",
@@ -102,7 +101,7 @@ def main():
             "dataset_name": key[0],
             "dataset_content_sha256": key[1],
             "model": key[2],
-            "prompt_level": key[3],
+            "difficulty_level": key[3],
             "scene_macro_score": round(sum(values) / len(values), 6),
             "scenes": len(values),
         }

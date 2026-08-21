@@ -2,6 +2,8 @@ import copy
 import json
 from pathlib import Path
 
+from source.difficulty import apply_difficulty_level
+
 
 TASK_DIR = Path(__file__).resolve().parents[1] / "tasks"
 
@@ -101,6 +103,7 @@ def construct(id_dict):
         task_dict["arm"] = id_dict["arm"]
 
     task_dict = preprocess(task_dict)
+    task_dict = apply_difficulty_level(task_dict, id_dict.get("level", 1))
 
     num_arms = int(task_dict["num_arms"])
     task_mode = task_dict.get("task_mode", "multi_arm")

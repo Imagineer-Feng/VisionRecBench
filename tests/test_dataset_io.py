@@ -36,6 +36,8 @@ class DatasetIOTest(unittest.TestCase):
             "scenario": "test_scenario",
             "scene": 1,
             "seed": 0,
+            "difficulty_level": 1,
+            "difficulty_name": "easy",
             "target_present": True,
             "target_index": 1,
             "answer_index": 1,
@@ -57,7 +59,8 @@ class DatasetIOTest(unittest.TestCase):
             "schema_version": DATASET_SCHEMA_VERSION,
             "dataset_name": "test_dataset",
             "scenarios": ["test_scenario"],
-            "episodes_per_scene": 1,
+            "difficulty_levels": [1],
+            "episodes_per_scene_per_level": 1,
             "content_sha256": dataset_content_hash(rows),
         }
         atomic_write_json(root / "metadata.json", metadata)

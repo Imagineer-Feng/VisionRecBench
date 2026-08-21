@@ -11,8 +11,8 @@ from scripts.evaluate_dataset import (
     content_sha256,
     evaluate_one,
 )
-from scripts.inference import get_control_labels
 from source.agent import RandomIdentifier
+from source.multimodal import get_control_labels
 from source.preprocess import construct
 from source.task_logic import configure_binary_answers
 
@@ -61,6 +61,8 @@ class OfflineEvaluationTest(unittest.TestCase):
                 "scenario": task["name"],
                 "scene": task["scene"],
                 "seed": 0,
+                "difficulty_level": 1,
+                "difficulty_name": "easy",
                 "task": task,
                 "control_labels": get_control_labels(task),
                 "visual_history_mode": "motion_diffs",
@@ -73,7 +75,6 @@ class OfflineEvaluationTest(unittest.TestCase):
             }
             content = build_episode_content(
                 record,
-                level=1,
                 max_image_history=-1,
                 dataset_root=root,
             )
@@ -91,7 +92,6 @@ class OfflineEvaluationTest(unittest.TestCase):
                     "content_sha256": "1234",
                 },
                 model="random",
-                level=1,
             )
             self.assertTrue(result["valid"])
             self.assertIn(result["choice"], (1, 2))

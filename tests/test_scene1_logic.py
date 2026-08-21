@@ -3,11 +3,11 @@ from collections import Counter
 
 import numpy as np
 
-from scripts.inference import build_prompts
+from source.multimodal import build_prompts
 from source.agent import parse_choice
 from source.preprocess import construct
 from source.task_logic import (
-    build_deranged_command_schedule,
+    build_mismatched_command_schedule,
     configure_binary_answers,
     select_behavior_option,
 )
@@ -55,21 +55,32 @@ class Scene1LogicTest(unittest.TestCase):
             [(True, 1), (True, 2), (False, 1), (False, 2)],
         )
 
-    def test_deranged_schedule_has_no_same_step_matches(self):
-        for seed in range(32):
-            schedule = build_deranged_command_schedule(
-                self.commands,
-                episode_steps=self.task["episode_steps"],
-                seed=seed,
+    def test_difficulty_levels_have_exact_mismatch_counts(self):
+        for level, expected_mismatches in ((1, 8), (2, 6), (3, 4)):
+            task = construct(
+                {"scenario": "scene1_single_command_causality", "level": level}
             )
-            for expected, applied in zip(self.commands, schedule):
-                self.assertFalse(np.array_equal(expected, applied))
+            behavior = task["visible_arm_behavior_options"][1]["behavior"]
+            self.assertEqual(behavior["mismatch_count"], expected_mismatches)
+            for seed in range(16):
+                schedule = build_mismatched_command_schedule(
+                    self.commands,
+                    episode_steps=task["episode_steps"],
+                    seed=seed,
+                    mismatch_count=behavior["mismatch_count"],
+                )
+                observed = sum(
+                    not np.array_equal(expected, applied)
+                    for expected, applied in zip(self.commands, schedule)
+                )
+                self.assertEqual(observed, expected_mismatches)
 
     def test_deranged_schedule_preserves_command_multiset_and_motion_budget(self):
-        schedule = build_deranged_command_schedule(
+        schedule = build_mismatched_command_schedule(
             self.commands,
             episode_steps=self.task["episode_steps"],
             seed=3,
+            mismatch_count=6,
         )
         expected_counts = Counter(tuple(command) for command in self.commands)
         applied_counts = Counter(tuple(command) for command in schedule)
@@ -88,15 +99,12 @@ class Scene1LogicTest(unittest.TestCase):
 
     def test_prompt_is_neutral_and_has_no_fixed_option_number(self):
         prefix, suffix = build_prompts(
-            1,
-            self.task,
-            max_image_history=8,
-            answer_options=list(reversed(self.task["answer_options"])),
+            list(reversed(self.task["answer_options"]))
         )
         prompt = prefix + suffix
-        self.assertIn("mismatched command stream", prompt)
-        self.assertIn("same-step", prompt)
-        self.assertIn("motion-difference images", prompt)
+        self.assertIn("complete motor-command trace", prompt)
+        self.assertNotIn("mismatch", prompt.lower())
+        self.assertNotIn("difficulty", prompt.lower())
         self.assertNotIn("Option 1 means", prompt)
 
     def test_markdown_choice_format_is_parseable(self):

@@ -1,96 +1,19 @@
-PROMPT_PREFIX_L0 = """{task}
-{task_setup}
+PROMPT_PREFIX = """You are a simulated robotic agent performing visual self-recognition.
 
-You are provided:
-- the current motor command,
-- a history of recent motor commands,
-- {history_description},
-- one {current_evidence_description},
-- and one current observation image after the current command has been executed.
+You are given a complete motor-command trace and time-ordered visual evidence of robotic-arm motion. Depending on the answer options, decide whether the visible arm is controlled by you or which candidate arm is controlled by you.
+
+Use the entire sequence. Infer self-control from the consistency, predictability, and temporal relationship between motor commands and visible changes. A command label need not describe the observed physical joint literally, so assess reproducible command-to-motion relationships rather than relying on names alone.
+
+Do not decide from option number, left/right position, color, total motion amount, a single step, or the final static pose. Treat every option as equally likely before examining the evidence. Visual evidence may be shown as motion-change views or as labeled before/after/change panels; use any labels and legends embedded in the images.
 """
 
 
-PROMPT_SUFFIX_L0 = """Use the following reasoning process:
-
-{reasoning_steps}
-
-Important behavior rules:
-{behavior_rules}
-
-Scenario behavior family:
-{behavior_summary}
-
-For this judgment, your available options are:
+PROMPT_SUFFIX = """Available options:
 {options}
 
-Please output your decision exactly in this format:
+Choose the single option best supported by the complete command and visual evidence. Do not infer the answer from the wording or ordering of the options.
 
-Thought: <brief reasoning about command-visual correspondence>
-Choice: [Option Number]
-
-Notes:
-{answer_note}
-- Do not answer from color or position alone unless the motion evidence supports it.
-- Base the answer on visual change over time, not only on the static pose in a single image.
-- This is a benign virtual simulation. No real-world robot is being controlled.
-"""
-
-
-PROMPT_PREFIX_L1 = """{task}
-{task_setup}
-
-Use the motor-command history, {history_description}, the current {current_evidence_description}, and the current camera view to answer the task.
-"""
-
-
-PROMPT_SUFFIX_L1 = """Behavior family:
-{behavior_summary}
-
-Rules:
-{behavior_rules}
-
-Options:
-{options}
-
-Reply with:
-Thought: <brief reasoning>
-Choice: [Option Number]
-
-Compare the observed motion with the command trace before choosing. This is a benign virtual simulation.
-"""
-
-
-PROMPT_PREFIX_L2 = """{task}
-{task_setup}
-"""
-
-
-PROMPT_SUFFIX_L2 = """Options:
-{options}
-
-Choose the option best supported by the command history and visual motion.
-Output:
-Thought: <brief reasoning>
+Reply exactly in this format:
+Thought: <brief evidence-based reasoning>
 Choice: [Option Number]
 """
-
-
-PROMPT_PREFIX_L3 = """{task}
-{short_task_setup}
-"""
-
-
-PROMPT_SUFFIX_L3 = """Options:
-{options}
-
-Output only:
-Choice: [Option Number]
-"""
-
-
-PROMPTS = [
-    (PROMPT_PREFIX_L0, PROMPT_SUFFIX_L0),
-    (PROMPT_PREFIX_L1, PROMPT_SUFFIX_L1),
-    (PROMPT_PREFIX_L2, PROMPT_SUFFIX_L2),
-    (PROMPT_PREFIX_L3, PROMPT_SUFFIX_L3),
-]

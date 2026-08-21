@@ -18,7 +18,7 @@ from source.render_config import RENDER_CONFIG
 from source.task_logic import (
     apply_mapped_behavior,
     build_multi_arm_role_assignment,
-    build_deranged_command_schedule,
+    build_mismatched_command_schedule,
     configure_binary_answers,
     materialize_mapping_behavior,
     select_behavior_option,
@@ -484,11 +484,18 @@ class VisionRecBenchEnv:
         for arm in self.arms:
             arm["joints"] = self.initial_joints.copy()
             arm["smooth_command"] = np.zeros(self.command_dim)
-            if arm["behavior"]["behavior"] == "sequence_derangement":
-                arm["command_schedule"] = build_deranged_command_schedule(
+            behavior_name = arm["behavior"]["behavior"]
+            if behavior_name in {"sequence_derangement", "sequence_mismatch"}:
+                mismatch_count = (
+                    self.episode_steps
+                    if behavior_name == "sequence_derangement"
+                    else int(arm["behavior"]["mismatch_count"])
+                )
+                arm["command_schedule"] = build_mismatched_command_schedule(
                     self.command_library,
                     episode_steps=self.episode_steps,
                     seed=int(self.task_dict.get("seed", 0)),
+                    mismatch_count=mismatch_count,
                 )
             else:
                 arm["command_schedule"] = None
@@ -608,11 +615,11 @@ class VisionRecBenchEnv:
             random_index = int(self.rng.integers(0, len(self.command_library)))
             return self.command_library[random_index]
 
-        if behavior == "sequence_derangement":
+        if behavior in {"sequence_derangement", "sequence_mismatch"}:
             schedule = arm.get("command_schedule")
             if not schedule:
                 raise RuntimeError(
-                    "sequence_derangement command schedule was not initialized."
+                    f"{behavior} command schedule was not initialized."
                 )
             command_index = len(self.command_memory) - 1
             return schedule[command_index % len(schedule)]

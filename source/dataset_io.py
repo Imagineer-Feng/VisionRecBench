@@ -7,7 +7,8 @@ from pathlib import Path
 from PIL import Image
 
 
-DATASET_SCHEMA_VERSION = "1.0"
+DATASET_SCHEMA_VERSION = "2.0"
+SUPPORTED_DATASET_SCHEMA_VERSIONS = {"1.0", DATASET_SCHEMA_VERSION}
 
 
 def utc_timestamp():
@@ -91,7 +92,7 @@ def episode_summary(record, dataset_root):
         / record["episode_id"]
         / "episode.json"
     )
-    return {
+    summary = {
         "schema_version": record["schema_version"],
         "episode_id": record["episode_id"],
         "episode_index": record["episode_index"],
@@ -105,6 +106,10 @@ def episode_summary(record, dataset_root):
         "record_path": record_path.relative_to(dataset_root).as_posix(),
         "record_sha256": sha256_file(record_path),
     }
+    if "difficulty_level" in record:
+        summary["difficulty_level"] = int(record["difficulty_level"])
+        summary["difficulty_name"] = record["difficulty_name"]
+    return summary
 
 
 def rebuild_manifest(dataset_root):
@@ -113,7 +118,13 @@ def rebuild_manifest(dataset_root):
     for record_path in (dataset_root / "episodes").glob("*/episode.json"):
         record = load_json(record_path)
         records.append(episode_summary(record, dataset_root))
-    records.sort(key=lambda item: (item["scenario"], item["episode_index"]))
+    records.sort(
+        key=lambda item: (
+            item["scenario"],
+            int(item.get("difficulty_level", 0)),
+            item["episode_index"],
+        )
+    )
     atomic_write_jsonl(dataset_root / "manifest.jsonl", records)
     return records
 
@@ -169,7 +180,7 @@ def validate_dataset(dataset_root, verify_checksums=True):
 
     metadata = load_json(metadata_path)
     rows = load_manifest(dataset_root)
-    if metadata.get("schema_version") != DATASET_SCHEMA_VERSION:
+    if metadata.get("schema_version") not in SUPPORTED_DATASET_SCHEMA_VERSIONS:
         errors.append("Unsupported dataset schema version.")
 
     identifiers = [row.get("episode_id") for row in rows]
@@ -215,26 +226,37 @@ def validate_dataset(dataset_root, verify_checksums=True):
             continue
 
         scenario = record.get("scenario")
-        counts[scenario] += 1
-        task_modes[scenario] = record.get("task", {}).get("task_mode")
-        answer_positions[scenario][record.get("answer_index")] += 1
-        target_positions[scenario][record.get("target_index")] += 1
-        target_presence[scenario][record.get("target_present")] += 1
+        difficulty_level = record.get("difficulty_level")
+        if metadata.get("schema_version") == DATASET_SCHEMA_VERSION:
+            if difficulty_level not in metadata.get("difficulty_levels", []):
+                errors.append(f"{episode_id}: invalid difficulty level")
+            if not record.get("difficulty_name"):
+                errors.append(f"{episode_id}: missing difficulty name")
+        group = (
+            scenario
+            if difficulty_level is None
+            else f"{scenario}/level{difficulty_level}"
+        )
+        counts[group] += 1
+        task_modes[group] = record.get("task", {}).get("task_mode")
+        answer_positions[group][record.get("answer_index")] += 1
+        target_positions[group][record.get("target_index")] += 1
+        target_presence[group][record.get("target_present")] += 1
 
         visible_behavior = record.get("task", {}).get("visible_arm_behavior", {})
         sampled_mapping = visible_behavior.get("sampled_mapping_option")
         if sampled_mapping is not None:
-            mapping_options[scenario][
+            mapping_options[group][
                 (record.get("target_present"), sampled_mapping)
             ] += 1
         for candidate in record.get("candidates", []):
-            behavior_positions[scenario][
+            behavior_positions[group][
                 (candidate.get("behavior"), candidate.get("index"))
             ] += 1
 
-        if record.get("schema_version") != DATASET_SCHEMA_VERSION:
+        if record.get("schema_version") not in SUPPORTED_DATASET_SCHEMA_VERSIONS:
             errors.append(f"{episode_id}: unsupported record schema version")
-        summary_fields = (
+        summary_fields = [
             "episode_id",
             "episode_index",
             "episode_signature",
@@ -244,7 +266,9 @@ def validate_dataset(dataset_root, verify_checksums=True):
             "target_present",
             "target_index",
             "answer_index",
-        )
+        ]
+        if difficulty_level is not None:
+            summary_fields.extend(("difficulty_level", "difficulty_name"))
         mismatched_fields = [
             key for key in summary_fields if summary.get(key) != record.get(key)
         ]
@@ -296,32 +320,44 @@ def validate_dataset(dataset_root, verify_checksums=True):
                 step_prefix,
             )
 
-    configured_count = int(metadata.get("episodes_per_scene", 0))
+    configured_count = int(
+        metadata.get(
+            "episodes_per_scene_per_level",
+            metadata.get("episodes_per_scene", 0),
+        )
+    )
+    configured_levels = metadata.get("difficulty_levels") or [None]
     for scenario in metadata.get("scenarios", []):
-        if counts[scenario] != configured_count:
-            errors.append(
-                f"{scenario}: expected {configured_count} episodes, "
-                f"found {counts[scenario]}"
+        for difficulty_level in configured_levels:
+            group = (
+                scenario
+                if difficulty_level is None
+                else f"{scenario}/level{difficulty_level}"
             )
-        values = list(answer_positions[scenario].values())
-        if values and max(values) - min(values) > 1:
-            errors.append(f"{scenario}: answer positions are not balanced")
-        if task_modes.get(scenario) == "single_binary":
-            values = list(target_presence[scenario].values())
-            if len(values) != 2 or max(values) - min(values) > 1:
-                errors.append(f"{scenario}: binary conditions are not balanced")
-        elif task_modes.get(scenario) == "multi_arm":
-            values = list(target_positions[scenario].values())
+            if counts[group] != configured_count:
+                errors.append(
+                    f"{group}: expected {configured_count} episodes, "
+                    f"found {counts[group]}"
+                )
+            values = list(answer_positions[group].values())
             if values and max(values) - min(values) > 1:
-                errors.append(f"{scenario}: target positions are not balanced")
+                errors.append(f"{group}: answer positions are not balanced")
+            if task_modes.get(group) == "single_binary":
+                values = list(target_presence[group].values())
+                if len(values) != 2 or max(values) - min(values) > 1:
+                    errors.append(f"{group}: binary conditions are not balanced")
+            elif task_modes.get(group) == "multi_arm":
+                values = list(target_positions[group].values())
+                if values and max(values) - min(values) > 1:
+                    errors.append(f"{group}: target positions are not balanced")
 
-        values = list(mapping_options[scenario].values())
-        if values and max(values) - min(values) > 1:
-            errors.append(f"{scenario}: mapping conditions are not balanced")
-        values = list(behavior_positions[scenario].values())
-        if task_modes.get(scenario) == "multi_arm" and values:
-            if max(values) - min(values) > 1:
-                errors.append(f"{scenario}: behavior positions are not balanced")
+            values = list(mapping_options[group].values())
+            if values and max(values) - min(values) > 1:
+                errors.append(f"{group}: mapping conditions are not balanced")
+            values = list(behavior_positions[group].values())
+            if task_modes.get(group) == "multi_arm" and values:
+                if max(values) - min(values) > 1:
+                    errors.append(f"{group}: behavior positions are not balanced")
 
     current_hash = dataset_content_hash(rows)
     stored_hash = metadata.get("content_sha256")

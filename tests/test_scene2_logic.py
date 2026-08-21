@@ -1,8 +1,9 @@
 import unittest
+from collections import Counter
 
 import numpy as np
 
-from scripts.inference import build_prompts
+from source.multimodal import build_prompts
 from source.preprocess import construct
 from source.task_logic import (
     apply_mapped_behavior,
@@ -52,7 +53,7 @@ class Scene2LogicTest(unittest.TestCase):
             np.testing.assert_array_equal(matrix.sum(axis=1), np.ones(4))
             np.testing.assert_array_equal(np.diag(matrix), np.zeros(4))
 
-    def test_stable_mapping_repeats_same_response(self):
+    def test_stable_mapping_repeats_same_response_across_four_cycles(self):
         behavior = materialize_mapping_behavior(
             self.behavior_options[0]["behavior"],
             seed=0,
@@ -61,24 +62,34 @@ class Scene2LogicTest(unittest.TestCase):
         command = np.array([1.0, 0.0, 0.0, 0.0])
         responses = [
             apply_mapped_behavior(behavior, command, step, command_dim=4)
-            for step in (0, 4, 8)
+            for step in (0, 4, 8, 12)
         ]
         np.testing.assert_array_equal(responses[0], responses[1])
         np.testing.assert_array_equal(responses[1], responses[2])
 
-    def test_unstable_mapping_changes_every_cycle(self):
-        behavior = materialize_mapping_behavior(
-            self.behavior_options[1]["behavior"],
-            seed=1,
-            behavior_option_count=2,
-        )
-        for axis in range(4):
-            command = np.eye(4)[axis]
-            responses = [
-                tuple(apply_mapped_behavior(behavior, command, step, command_dim=4))
-                for step in (0, 4, 8)
-            ]
-            self.assertEqual(len(set(responses)), 3)
+    def test_nonself_mapping_repetition_matches_each_difficulty(self):
+        expected_patterns = {
+            1: [1, 1, 1, 1],
+            2: [2, 1, 1],
+            3: [3, 1],
+        }
+        for level, expected_counts in expected_patterns.items():
+            task = construct(
+                {"scenario": "scene2_single_scrambled_stability", "level": level}
+            )
+            behavior = materialize_mapping_behavior(
+                task["visible_arm_behavior_options"][1]["behavior"],
+                seed=1,
+                behavior_option_count=2,
+            )
+            mapping_counts = sorted(
+                Counter(
+                    tuple(np.asarray(mapping).ravel())
+                    for mapping in behavior["mappings"]
+                ).values(),
+                reverse=True,
+            )
+            self.assertEqual(mapping_counts, expected_counts)
 
     def test_each_cycle_has_same_total_motion_budget(self):
         for option_index, option in enumerate(self.behavior_options):
@@ -88,7 +99,7 @@ class Scene2LogicTest(unittest.TestCase):
                 behavior_option_count=2,
             )
             cycle_totals = []
-            for cycle_index in range(3):
+            for cycle_index in range(4):
                 responses = [
                     apply_mapped_behavior(
                         behavior,
@@ -103,25 +114,20 @@ class Scene2LogicTest(unittest.TestCase):
             for total in cycle_totals:
                 np.testing.assert_array_equal(total, np.ones(4))
 
-    def test_prompt_describes_both_conditions_without_fixed_answer_number(self):
+    def test_prompt_does_not_disclose_mapping_conditions(self):
         prefix, suffix = build_prompts(
-            1,
-            self.task,
-            max_image_history=12,
-            answer_options=list(reversed(self.task["answer_options"])),
+            list(reversed(self.task["answer_options"]))
         )
         prompt = prefix + suffix
-        self.assertIn("may remain stable", prompt)
-        self.assertIn("may change between cycles", prompt)
-        self.assertIn("Non-self case", prompt)
+        self.assertNotIn("non-self case", prompt.lower())
+        self.assertNotIn("changes between cycles", prompt.lower())
+        self.assertNotIn("difficulty", prompt.lower())
         self.assertNotIn("Option 1 means", prompt)
-        self.assertNotIn("should still count as your own body", prompt)
-        self.assertIn("motion-difference images", prompt)
 
-    def test_scene_judges_once_after_three_complete_four_axis_cycles(self):
-        self.assertEqual(self.task["episode_steps"], 12)
-        self.assertEqual(self.task["judge_start_step"], 12)
-        self.assertEqual(self.task["judge_interval_steps"], 4)
+    def test_scene_contains_four_complete_four_axis_cycles(self):
+        self.assertEqual(self.task["episode_steps"], 16)
+        self.assertEqual(self.task["judge_start_step"], 16)
+        self.assertEqual(self.task["judge_interval_steps"], 16)
         self.assertEqual(self.task["visual_history_mode"], "motion_diffs")
         self.assertFalse(self.task["annotate_candidates"])
         commands = np.asarray(

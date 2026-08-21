@@ -3,7 +3,7 @@ from collections import Counter, defaultdict
 
 import numpy as np
 
-from scripts.inference import build_prompts, make_candidate_motion_panel
+from source.multimodal import build_prompts, make_candidate_motion_panel
 from source.preprocess import construct
 from source.task_logic import build_multi_arm_role_assignment
 
@@ -21,11 +21,15 @@ class Scene3LogicTest(unittest.TestCase):
             self.assertEqual(task["name"], "scene3_dyad_causal_identification")
             self.assertEqual(task["requested_name"], legacy_name)
 
-    def test_scene_contains_self_and_one_step_delay_only(self):
-        self.assertEqual(self.task["num_arms"], 2)
-        self.assertEqual(len(self.task["distractors"]), 1)
-        self.assertEqual(self.task["distractors"][0]["behavior"], "delay")
-        self.assertEqual(self.task["distractors"][0]["delay"], 1)
+    def test_scene_delay_matches_each_difficulty(self):
+        for level, expected_delay in ((1, 3), (2, 2), (3, 1)):
+            task = construct(
+                {"scenario": "scene3_dyad_causal_identification", "level": level}
+            )
+            self.assertEqual(task["num_arms"], 2)
+            self.assertEqual(len(task["distractors"]), 1)
+            self.assertEqual(task["distractors"][0]["behavior"], "delay")
+            self.assertEqual(task["distractors"][0]["delay"], expected_delay)
 
     def test_two_consecutive_seeds_balance_self_and_delay_positions(self):
         target_positions = []
@@ -73,20 +77,14 @@ class Scene3LogicTest(unittest.TestCase):
         self.assertEqual(self.task["visual_history_mode"], "candidate_motion_panels")
         self.assertTrue(self.task["annotate_candidates"])
 
-    def test_prompt_describes_role_randomization_and_axis_signs(self):
+    def test_prompt_does_not_disclose_delay(self):
         prefix, suffix = build_prompts(
-            1,
-            self.task,
-            max_image_history=8,
+            ["candidate 1", "candidate 2"]
         )
         prompt = prefix + suffix
-        self.assertIn("candidate motion panel", prompt)
-        self.assertIn("left/right position alone is not evidence", prompt)
-        self.assertIn("joint-axis signs", prompt)
-        self.assertIn("one-step-delayed", prompt)
-        self.assertIn("previous step's command", prompt)
-        self.assertNotIn("inverted distractor", prompt.lower())
-        self.assertNotIn("current motion-difference image", prompt)
+        self.assertNotIn("delay", prompt.lower())
+        self.assertNotIn("previous step", prompt.lower())
+        self.assertNotIn("difficulty", prompt.lower())
 
     def test_candidate_motion_panel_contains_before_after_and_signed_change(self):
         previous = np.full((96, 96, 3), 30, dtype=np.uint8)

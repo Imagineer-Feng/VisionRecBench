@@ -15,14 +15,15 @@ from PIL import Image
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
 
-from scripts.inference import (  # noqa: E402
+from source.difficulty import DIFFICULTY_LEVELS  # noqa: E402
+from source.multimodal import (  # noqa: E402
     build_model_content,
     build_prompts,
     get_control_labels,
-    validate_api_key,
 )
 from source.agent import create_identifier  # noqa: E402
 from source.dataset_io import (  # noqa: E402
+    DATASET_SCHEMA_VERSION,
     atomic_write_json,
     load_episode,
     load_json,
@@ -44,8 +45,9 @@ def parse_args():
         "--level",
         type=int,
         nargs="+",
-        choices=[0, 1, 2, 3],
-        default=[1],
+        choices=DIFFICULTY_LEVELS,
+        default=None,
+        help="Optional physical difficulty-level filter; default evaluates all levels.",
     )
     parser.add_argument(
         "--output",
@@ -109,20 +111,13 @@ def sanitized_api_endpoint(model):
     return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
 
 
-def build_episode_content(record, level, max_image_history, dataset_root):
+def build_episode_content(record, max_image_history, dataset_root):
     task = record["task"]
     steps = record["steps"]
     if not steps:
         raise ValueError(f"Episode {record['episode_id']} has no steps.")
 
-    prompt_prefix, prompt_suffix = build_prompts(
-        level,
-        task,
-        max_image_history=(
-            len(steps) if max_image_history < 0 else max_image_history
-        ),
-        answer_options=record["answer_options"],
-    )
+    prompt_prefix, prompt_suffix = build_prompts(record["answer_options"])
     command_history = [step["command"] for step in steps]
     prior_steps = steps[:-1]
     if max_image_history >= 0:
@@ -142,24 +137,21 @@ def build_episode_content(record, level, max_image_history, dataset_root):
         prompt_prefix,
         prompt_suffix,
         control_labels,
-        final_step["command"],
         command_history,
         visual_history,
         current_evidence,
         current_observation,
-        judgement_interval=int(task.get("judge_interval_steps", 1)),
-        visual_history_mode=record["visual_history_mode"],
         visual_history_commands=visual_history_commands,
     )
 
 
-def result_path(output_root, metadata, model, level, record):
+def result_path(output_root, metadata, model, record):
     model_dir = model.replace("/", "-")
     dataset_dir = metadata["dataset_name"].replace("/", "-")
     return (
         Path(output_root)
         / dataset_dir
-        / f"prompt_level{level}"
+        / f"difficulty_level{record['difficulty_level']}"
         / model_dir
         / record["scenario"]
         / f"{record['episode_id']}.json"
@@ -172,7 +164,6 @@ def evaluate_one(
     content_items,
     metadata,
     model,
-    level,
     random_seed=None,
 ):
     identification = identifier.identify(
@@ -181,7 +172,7 @@ def evaluate_one(
     )
     correct = identification.choice == int(record["answer_index"])
     return {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
         "dataset_name": metadata["dataset_name"],
         "dataset_content_sha256": metadata["content_sha256"],
         "episode_id": record["episode_id"],
@@ -191,8 +182,8 @@ def evaluate_one(
         "seed": record["seed"],
         "model": model,
         "api_endpoint": sanitized_api_endpoint(model),
-        "prompt_level": level,
-        "temperature": 0.0 if model != "random" else None,
+        "difficulty_level": int(record["difficulty_level"]),
+        "difficulty_name": record["difficulty_name"],
         "random_seed": random_seed if model == "random" else None,
         "evaluated_at": utc_timestamp(),
         "input_content_sha256": content_sha256(content_items),
@@ -221,101 +212,108 @@ def main():
         raise SystemExit(1)
 
     metadata = load_json(dataset_root / "metadata.json")
+    if metadata.get("schema_version") != DATASET_SCHEMA_VERSION:
+        raise SystemExit(
+            "This evaluator requires a difficulty-level dataset with schema "
+            f"{DATASET_SCHEMA_VERSION}; legacy datasets remain validation-only."
+        )
     rows = load_manifest(dataset_root)
     if args.scenario:
         selected = set(args.scenario)
         rows = [row for row in rows if row["scenario"] in selected]
+    if args.level:
+        selected_levels = set(args.level)
+        rows = [
+            row for row in rows
+            if int(row["difficulty_level"]) in selected_levels
+        ]
     if args.limit is not None:
         rows = rows[: args.limit]
 
-    validate_api_key(args.model)
     random.seed(args.random_seed)
     identifier = create_identifier(args.model)
     outcomes = Counter()
-    total = len(rows) * len(args.level)
+    total = len(rows)
     current = 0
-    for level in args.level:
-        for summary in rows:
-            current += 1
-            record = load_episode(dataset_root, summary)
-            content_items = build_episode_content(
-                record,
-                level,
-                args.max_image_history,
-                dataset_root,
-            )
-            expected_input_hash = content_sha256(content_items)
-            output_path = result_path(
-                args.output,
-                metadata,
-                args.model,
-                level,
-                record,
-            )
-            if output_path.is_file():
-                if not args.resume:
-                    raise FileExistsError(
-                        f"Result already exists: {output_path}. Use --resume."
-                    )
-                existing = load_json(output_path)
-                expected_existing = {
-                    "dataset_content_sha256": metadata["content_sha256"],
-                    "episode_id": record["episode_id"],
-                    "episode_signature": record["episode_signature"],
-                    "model": args.model,
-                    "prompt_level": level,
-                    "input_content_sha256": expected_input_hash,
-                    "random_seed": (
-                        args.random_seed if args.model == "random" else None
-                    ),
-                }
-                mismatches = [
-                    key
-                    for key, value in expected_existing.items()
-                    if existing.get(key) != value
-                ]
-                if mismatches:
-                    raise ValueError(
-                        f"Existing result metadata mismatch ({', '.join(mismatches)}): "
-                        f"{output_path}"
-                    )
-                print(
-                    f"[{current}/{total}] skipping {record['episode_id']} L{level}",
-                    flush=True,
+    for summary in rows:
+        current += 1
+        record = load_episode(dataset_root, summary)
+        level = int(record["difficulty_level"])
+        content_items = build_episode_content(
+            record,
+            args.max_image_history,
+            dataset_root,
+        )
+        expected_input_hash = content_sha256(content_items)
+        output_path = result_path(
+            args.output,
+            metadata,
+            args.model,
+            record,
+        )
+        if output_path.is_file():
+            if not args.resume:
+                raise FileExistsError(
+                    f"Result already exists: {output_path}. Use --resume."
                 )
-                outcomes["skipped"] += 1
-                continue
-
-            print(
-                f"[{current}/{total}] evaluating {record['episode_id']} L{level}",
-                flush=True,
-            )
-            if args.model == "random":
-                per_episode_seed = int.from_bytes(
-                    hashlib.sha256(
-                        f"{args.random_seed}:{level}:{record['episode_id']}".encode(
-                            "utf-8"
-                        )
-                    ).digest()[:8],
-                    byteorder="big",
-                )
-                random.seed(per_episode_seed)
-            result = evaluate_one(
-                identifier,
-                record,
-                content_items,
-                metadata,
-                args.model,
-                level,
-                random_seed=(
+            existing = load_json(output_path)
+            expected_existing = {
+                "dataset_content_sha256": metadata["content_sha256"],
+                "episode_id": record["episode_id"],
+                "episode_signature": record["episode_signature"],
+                "model": args.model,
+                "difficulty_level": level,
+                "input_content_sha256": expected_input_hash,
+                "random_seed": (
                     args.random_seed if args.model == "random" else None
                 ),
+            }
+            mismatches = [
+                key
+                for key, value in expected_existing.items()
+                if existing.get(key) != value
+            ]
+            if mismatches:
+                raise ValueError(
+                    f"Existing result metadata mismatch ({', '.join(mismatches)}): "
+                    f"{output_path}"
+                )
+            print(
+                f"[{current}/{total}] skipping {record['episode_id']} L{level}",
+                flush=True,
             )
-            atomic_write_json(output_path, result)
-            outcomes["completed"] += 1
-            outcomes["correct" if result["correct"] else "incorrect"] += 1
-            if not result["valid"]:
-                outcomes["invalid"] += 1
+            outcomes["skipped"] += 1
+            continue
+
+        print(
+            f"[{current}/{total}] evaluating {record['episode_id']} L{level}",
+            flush=True,
+        )
+        if args.model == "random":
+            per_episode_seed = int.from_bytes(
+                hashlib.sha256(
+                    f"{args.random_seed}:{level}:{record['episode_id']}".encode(
+                        "utf-8"
+                    )
+                ).digest()[:8],
+                byteorder="big",
+            )
+            random.seed(per_episode_seed)
+        result = evaluate_one(
+            identifier,
+            record,
+            content_items,
+            metadata,
+            args.model,
+            random_seed=(
+                args.random_seed if args.model == "random" else None
+            ),
+        )
+        atomic_write_json(output_path, result)
+        outcomes["completed"] += 1
+        outcomes["correct" if result["correct"] else "incorrect"] += 1
+        if not result["valid"]:
+            outcomes["invalid"] += 1
 
     print(json.dumps(dict(outcomes), indent=2, sort_keys=True))
 

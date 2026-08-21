@@ -13,13 +13,14 @@ import numpy as np
 BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
 
-from scripts.inference import (  # noqa: E402
+from source.multimodal import (  # noqa: E402
     annotate_candidates,
     get_control_labels,
     make_candidate_motion_panel,
     make_motion_diff,
     save_rgb,
 )
+from source.difficulty import DIFFICULTY_LEVELS  # noqa: E402
 from source.dataset_io import (  # noqa: E402
     DATASET_SCHEMA_VERSION,
     atomic_write_json,
@@ -48,11 +49,11 @@ def parse_args():
     parser.add_argument(
         "--output",
         type=Path,
-        default=BASE_DIR / "datasets" / "visionrecbench_robust_v2",
+        default=BASE_DIR / "datasets" / "visionrecbench_robust_v3",
     )
     parser.add_argument(
         "--dataset-name",
-        default="visionrecbench_robust_v2",
+        default="visionrecbench_robust_v3",
     )
     parser.add_argument(
         "--scenario",
@@ -61,7 +62,21 @@ def parse_args():
         choices=STANDARD_SCENARIOS,
         default=list(STANDARD_SCENARIOS),
     )
-    parser.add_argument("--episodes-per-scene", type=int, default=48)
+    parser.add_argument(
+        "--level",
+        dest="levels",
+        type=int,
+        nargs="+",
+        choices=DIFFICULTY_LEVELS,
+        default=list(DIFFICULTY_LEVELS),
+        help="Physical difficulty levels to generate; default generates all levels.",
+    )
+    parser.add_argument(
+        "--episodes-per-scene",
+        type=int,
+        default=48,
+        help="Episodes per scene per difficulty level.",
+    )
     parser.add_argument("--base-seed", type=int, default=0)
     parser.add_argument("--profile", default=SAMPLING_PROFILE)
     parser.add_argument("--headless", action="store_true")
@@ -95,16 +110,18 @@ def parse_args():
 
 def sampling_plan(args):
     tasks = []
-    for scenario in args.scenarios:
-        for episode_index in range(args.episodes_per_scene):
-            tasks.append(
-                build_episode_task(
-                    scenario,
-                    episode_index,
-                    base_seed=args.base_seed,
-                    profile=args.profile,
+    for level in args.levels:
+        for scenario in args.scenarios:
+            for episode_index in range(args.episodes_per_scene):
+                tasks.append(
+                    build_episode_task(
+                        scenario,
+                        episode_index,
+                        level=level,
+                        base_seed=args.base_seed,
+                        profile=args.profile,
+                    )
                 )
-            )
     signatures = [task["episode_signature"] for task in tasks]
     duplicate_count = len(signatures) - len(set(signatures))
     if duplicate_count:
@@ -115,11 +132,17 @@ def sampling_plan(args):
 
 
 def plan_report(tasks):
-    scenario_counts = Counter(task["name"] for task in tasks)
+    scenario_level_counts = Counter(
+        (task["name"], task["difficulty_level"])
+        for task in tasks
+    )
     return {
         "profile": SAMPLING_PROFILE,
         "episode_count": len(tasks),
-        "scenario_counts": dict(scenario_counts),
+        "scenario_level_counts": {
+            f"{scenario}/level{level}": count
+            for (scenario, level), count in scenario_level_counts.items()
+        },
         "unique_signatures": len(
             {task["episode_signature"] for task in tasks}
         ),
@@ -139,10 +162,12 @@ def metadata_for(args):
     source_digest = hashlib.sha256()
     source_paths = (
         BASE_DIR / "scripts" / "generate_dataset.py",
-        BASE_DIR / "scripts" / "inference.py",
         BASE_DIR / "source" / "dataset_io.py",
+        BASE_DIR / "source" / "difficulty.py",
         BASE_DIR / "source" / "episode_sampling.py",
         BASE_DIR / "source" / "env.py",
+        BASE_DIR / "source" / "multimodal.py",
+        BASE_DIR / "source" / "preprocess.py",
         BASE_DIR / "source" / "task_logic.py",
         BASE_DIR / "source" / "render_config.py",
         BASE_DIR / "tasks" / "scenario_repo.json",
@@ -157,7 +182,8 @@ def metadata_for(args):
         "dataset_name": args.dataset_name,
         "sampling_profile": args.profile,
         "scenarios": list(args.scenarios),
-        "episodes_per_scene": int(args.episodes_per_scene),
+        "difficulty_levels": list(args.levels),
+        "episodes_per_scene_per_level": int(args.episodes_per_scene),
         "base_seed": int(args.base_seed),
         "render_config": copy.deepcopy(RENDER_CONFIG),
         "source_revision": source_revision,
@@ -186,7 +212,8 @@ def prepare_dataset_root(args):
             "dataset_name",
             "sampling_profile",
             "scenarios",
-            "episodes_per_scene",
+            "difficulty_levels",
+            "episodes_per_scene_per_level",
             "base_seed",
             "render_config",
             "generator_source_sha256",
@@ -276,6 +303,8 @@ def render_episode(env, task, dataset_root):
         "scenario": task["name"],
         "scene": int(task["scene"]),
         "seed": int(task["seed"]),
+        "difficulty_level": int(task["difficulty_level"]),
+        "difficulty_name": task["difficulty_name"],
         "sampling_profile": task["episode_variation"]["profile"],
         "task": resolved_task,
         "control_labels": control_labels,

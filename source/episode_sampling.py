@@ -4,9 +4,10 @@ import json
 
 import numpy as np
 
+from source.difficulty import DIFFICULTY_LEVELS
 from source.preprocess import construct
 from source.task_logic import (
-    build_deranged_command_schedule,
+    build_mismatched_command_schedule,
     build_multi_arm_role_assignment,
     materialize_mapping_behavior,
     select_behavior_option,
@@ -27,6 +28,8 @@ def _round_list(values, digits=6):
 
 
 def _episode_rng(base_seed, scene, episode_index):
+    # Difficulty is deliberately omitted so the same episode index has matched
+    # commands, pose, camera, and appearance across all three levels.
     seed_sequence = np.random.SeedSequence(
         [int(base_seed), int(scene), int(episode_index)]
     )
@@ -166,11 +169,15 @@ def _condition_descriptor(task):
             "target_present": target_present,
             "behavior": behavior,
         }
-        if behavior["behavior"] == "sequence_derangement":
-            schedule = build_deranged_command_schedule(
+        if behavior["behavior"] in {"sequence_derangement", "sequence_mismatch"}:
+            mismatch_count = int(
+                behavior.get("mismatch_count", task["episode_steps"])
+            )
+            schedule = build_mismatched_command_schedule(
                 [item["delta"] for item in task["command_sequence"]],
                 episode_steps=task["episode_steps"],
                 seed=task["seed"],
+                mismatch_count=mismatch_count,
             )
             descriptor["applied_schedule"] = [
                 _round_list(command) for command in schedule
@@ -191,6 +198,7 @@ def canonical_episode_signature(task):
     """Return a stable signature of the physical/visual episode design."""
     signature_payload = {
         "scenario": task["name"],
+        "difficulty_level": task["difficulty_level"],
         "condition": _condition_descriptor(task),
         "command_sequence": task["command_sequence"],
         "arm_initial_joint_positions": task["arm"].get(
@@ -218,6 +226,7 @@ def canonical_episode_signature(task):
 def build_episode_task(
     scenario,
     episode_index,
+    level=1,
     base_seed=0,
     profile=SAMPLING_PROFILE,
 ):
@@ -225,8 +234,10 @@ def build_episode_task(
         raise ValueError(f"Unsupported sampling profile: {profile}")
     if int(episode_index) < 0:
         raise ValueError("episode_index must be non-negative.")
+    if int(level) not in DIFFICULTY_LEVELS:
+        raise ValueError(f"Unsupported difficulty level: {level}")
 
-    task = construct({"scenario": scenario})
+    task = construct({"scenario": scenario, "level": int(level)})
     scene = int(task["scene"])
     episode_seed = int(base_seed) + int(episode_index)
     rng = _episode_rng(base_seed, scene, episode_index)
@@ -237,6 +248,7 @@ def build_episode_task(
         "base_seed": int(base_seed),
         "episode_index": int(episode_index),
         "episode_seed": episode_seed,
+        "difficulty_level": int(level),
         "commands": _vary_commands(task, rng),
         "initial_pose": _vary_initial_pose(task, rng),
         "camera": _vary_camera(task, rng),
@@ -245,7 +257,7 @@ def build_episode_task(
     task["episode_variation"] = variation
     task["episode_signature"] = canonical_episode_signature(task)
     task["episode_id"] = (
-        f"{task['name']}-{int(episode_index):05d}-"
+        f"{task['name']}-level{int(level)}-{int(episode_index):05d}-"
         f"{task['episode_signature'][:12]}"
     )
     return task

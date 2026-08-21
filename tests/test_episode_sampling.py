@@ -3,6 +3,7 @@ from collections import Counter
 
 import numpy as np
 
+from source.difficulty import DIFFICULTY_LEVELS
 from source.episode_sampling import (
     STANDARD_SCENARIOS,
     build_episode_task,
@@ -25,11 +26,29 @@ class EpisodeSamplingTest(unittest.TestCase):
     def test_robust_split_has_unique_episode_signatures(self):
         for scenario in STANDARD_SCENARIOS:
             tasks = [
-                build_episode_task(scenario, index, base_seed=0)
+                build_episode_task(scenario, index, level=level, base_seed=0)
+                for level in DIFFICULTY_LEVELS
                 for index in range(48)
             ]
             signatures = {task["episode_signature"] for task in tasks}
-            self.assertEqual(len(signatures), 48)
+            self.assertEqual(len(signatures), 144)
+
+    def test_difficulty_levels_share_nuisance_variations(self):
+        for scenario in STANDARD_SCENARIOS:
+            tasks = [
+                build_episode_task(scenario, 7, level=level, base_seed=0)
+                for level in DIFFICULTY_LEVELS
+            ]
+            for key in (
+                "command_sequence",
+                "camera_eye",
+                "camera_target",
+                "camera_focal",
+                "floor_color",
+                "background_color",
+            ):
+                self.assertEqual(tasks[0][key], tasks[1][key])
+                self.assertEqual(tasks[1][key], tasks[2][key])
 
     def test_sampling_changes_commands_pose_camera_and_lighting(self):
         scenario = "scene3_dyad_causal_identification"
@@ -63,70 +82,70 @@ class EpisodeSamplingTest(unittest.TestCase):
 
     def test_binary_conditions_and_answer_positions_are_balanced(self):
         for scenario in STANDARD_SCENARIOS[:2]:
-            combinations = Counter()
-            mapping_options = Counter()
-            for index in range(48):
-                task = build_episode_task(scenario, index, base_seed=0)
-                options = task["visible_arm_behavior_options"]
-                selected_index = select_behavior_option(
-                    options,
-                    seed=task["seed"],
-                    strategy=task["behavior_selection"],
-                )
-                selected = options[selected_index]
-                _, answer_index = configure_binary_answers(
-                    task["answer_options"],
-                    selected["target_present"],
-                    task["seed"],
-                    shuffle=True,
-                )
-                combinations[(selected["target_present"], answer_index)] += 1
-                behavior = materialize_mapping_behavior(
-                    selected["behavior"],
-                    seed=task["seed"],
-                    behavior_option_count=len(options),
-                )
-                if "sampled_mapping_option" in behavior:
-                    mapping_options[
-                        (selected["target_present"], behavior["sampled_mapping_option"])
-                    ] += 1
+            for level in DIFFICULTY_LEVELS:
+                combinations = Counter()
+                mapping_options = Counter()
+                for index in range(48):
+                    task = build_episode_task(
+                        scenario, index, level=level, base_seed=0
+                    )
+                    options = task["visible_arm_behavior_options"]
+                    selected_index = select_behavior_option(
+                        options,
+                        seed=task["seed"],
+                        strategy=task["behavior_selection"],
+                    )
+                    selected = options[selected_index]
+                    _, answer_index = configure_binary_answers(
+                        task["answer_options"],
+                        selected["target_present"],
+                        task["seed"],
+                        shuffle=True,
+                    )
+                    combinations[(selected["target_present"], answer_index)] += 1
+                    behavior = materialize_mapping_behavior(
+                        selected["behavior"],
+                        seed=task["seed"],
+                        behavior_option_count=len(options),
+                    )
+                    if "sampled_mapping_option" in behavior:
+                        mapping_options[
+                            (
+                                selected["target_present"],
+                                behavior["sampled_mapping_option"],
+                            )
+                        ] += 1
 
-            self.assertEqual(set(combinations.values()), {12})
-            if mapping_options:
-                self.assertEqual(set(mapping_options.values()), {8})
+                self.assertEqual(set(combinations.values()), {12})
+                if mapping_options:
+                    self.assertEqual(set(mapping_options.values()), {6})
 
     def test_scene3_target_and_distractor_roles_are_balanced(self):
         positions = Counter()
         behavior_positions = Counter()
-        for index in range(48):
-            task = build_episode_task(
-                "scene3_dyad_causal_identification",
-                index,
-                base_seed=0,
-            )
-            assignments = build_multi_arm_role_assignment(
-                task["num_arms"],
-                task["distractors"],
-                task["seed"],
-            )
-            for assignment in assignments:
-                behavior = assignment["behavior"]["behavior"]
-                behavior_positions[(behavior, assignment["index"])] += 1
-                if assignment["role"] == "target":
-                    positions[assignment["index"]] += 1
+        for level in DIFFICULTY_LEVELS:
+            for index in range(48):
+                task = build_episode_task(
+                    "scene3_dyad_causal_identification",
+                    index,
+                    level=level,
+                    base_seed=0,
+                )
+                assignments = build_multi_arm_role_assignment(
+                    task["num_arms"],
+                    task["distractors"],
+                    task["seed"],
+                )
+                for assignment in assignments:
+                    behavior = assignment["behavior"]["behavior"]
+                    behavior_positions[
+                        (level, behavior, assignment["index"])
+                    ] += 1
+                    if assignment["role"] == "target":
+                        positions[(level, assignment["index"])] += 1
 
-        self.assertEqual(positions, Counter({1: 24, 2: 24}))
-        self.assertEqual(
-            behavior_positions,
-            Counter(
-                {
-                    ("direct", 1): 24,
-                    ("direct", 2): 24,
-                    ("delay", 1): 24,
-                    ("delay", 2): 24,
-                }
-            ),
-        )
+        self.assertEqual(set(positions.values()), {24})
+        self.assertEqual(set(behavior_positions.values()), {24})
 
     def test_scene2_preserves_one_repeatable_four_command_cycle(self):
         task = build_episode_task(

@@ -33,10 +33,24 @@ def materialize_mapping_behavior(behavior, seed, behavior_option_count=1):
         return resolved
 
     if behavior_name == "mapped_cycle_switch":
+        mapping_pattern = resolved.pop(
+            "mapping_pattern",
+            list(range(mapping_count)),
+        )
+        if not mapping_pattern:
+            raise ValueError("mapped_cycle_switch requires a mapping pattern.")
+        if any(
+            not isinstance(index, int) or not 0 <= index < mapping_count
+            for index in mapping_pattern
+        ):
+            raise ValueError(
+                "mapped_cycle_switch mapping_pattern contains an invalid index."
+            )
         resolved["mappings"] = [
             copy.deepcopy(mapping_options[(mapping_offset + index) % mapping_count])
-            for index in range(mapping_count)
+            for index in mapping_pattern
         ]
+        resolved["mapping_pattern"] = list(mapping_pattern)
         resolved["sampled_mapping_option"] = mapping_offset + 1
         return resolved
 
@@ -59,37 +73,69 @@ def configure_binary_answers(answer_options, target_present, seed, shuffle=False
     return ordered, semantic_answer_index + 1
 
 
-def build_deranged_command_schedule(command_library, episode_steps, seed):
+def build_mismatched_command_schedule(
+    command_library,
+    episode_steps,
+    seed,
+    mismatch_count,
+):
     commands = np.asarray(command_library, dtype=float)
     if commands.ndim != 2 or len(commands) < 2:
         raise ValueError(
-            "A deranged command schedule requires at least two command vectors."
+            "A mismatched command schedule requires at least two command vectors."
         )
     if len({tuple(command) for command in commands}) != len(commands):
         raise ValueError(
-            "A deranged command schedule requires unique command vectors."
+            "A mismatched command schedule requires unique command vectors."
+        )
+    episode_steps = int(episode_steps)
+    mismatch_count = int(mismatch_count)
+    if episode_steps != len(commands):
+        raise ValueError(
+            "Exact mismatch scheduling requires episode_steps to equal the "
+            "number of command vectors."
+        )
+    if not 2 <= mismatch_count <= episode_steps:
+        raise ValueError(
+            "mismatch_count must be between 2 and episode_steps inclusive."
         )
 
     rng = np.random.default_rng(int(seed))
     base_indices = np.arange(len(commands))
-    permutation = None
+    mismatch_indices = np.sort(
+        rng.choice(base_indices, size=mismatch_count, replace=False)
+    )
+    mismatch_permutation = None
     for _ in range(1000):
-        candidate = rng.permutation(base_indices)
-        if np.all(candidate != base_indices):
-            permutation = candidate
+        candidate = rng.permutation(mismatch_indices)
+        if np.all(candidate != mismatch_indices):
+            mismatch_permutation = candidate
             break
-    if permutation is None:
-        raise RuntimeError("Could not construct a deranged command schedule.")
+    if mismatch_permutation is None:
+        raise RuntimeError("Could not construct an exact mismatch schedule.")
 
-    schedule = [
-        commands[permutation[step % len(commands)]].copy()
-        for step in range(int(episode_steps))
-    ]
+    permutation = base_indices.copy()
+    permutation[mismatch_indices] = mismatch_permutation
+    schedule = [commands[index].copy() for index in permutation]
+    observed_mismatches = 0
     for step, applied in enumerate(schedule):
-        expected = commands[step % len(commands)]
-        if np.array_equal(applied, expected):
-            raise RuntimeError("Deranged schedule contains an accidental match.")
+        expected = commands[step]
+        if not np.array_equal(applied, expected):
+            observed_mismatches += 1
+    if observed_mismatches != mismatch_count:
+        raise RuntimeError(
+            "Mismatch schedule does not contain the requested number of mismatches."
+        )
     return schedule
+
+
+def build_deranged_command_schedule(command_library, episode_steps, seed):
+    return build_mismatched_command_schedule(
+        command_library,
+        episode_steps=episode_steps,
+        seed=seed,
+        mismatch_count=episode_steps,
+    )
 
 
 def build_multi_arm_role_assignment(num_arms, distractors, seed, target_index=None):

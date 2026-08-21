@@ -112,8 +112,13 @@
             {
                 "target_present": false,
                 "behavior": {
-                    "behavior": "sequence_derangement",
-                    "desc": "a non-self arm that executes the same command set in a deranged order, with no step matching the current motor command"
+                    "behavior": "sequence_mismatch",
+                    "mismatch_count_by_level": {
+                        "1": 8,
+                        "2": 6,
+                        "3": 4
+                    },
+                    "desc": "a non-self arm that executes the same command multiset with a difficulty-controlled number of same-step mismatches"
                 }
             }
         ],
@@ -146,7 +151,7 @@
         "judge_interval_steps": 8,
         "judge_start_step": 8,
         "visual_history_mode": "motion_diffs",
-        "behavior_family_desc": "- Self case: every visible movement follows the motor command listed for that same step.\n- Non-self case: the arm executes the same overall command set in a different order, so its total motion budget is comparable but each visible movement is paired with the wrong current command.",
+        "behavior_family_desc": "The self arm follows every current command. The non-self arm preserves the same command multiset and total motion budget but has a difficulty-controlled number of same-step mismatches.",
         "command_sequence": [
             {"name": "base_yaw_left", "delta": [1, 0, 0, 0]},
             {"name": "shoulder_up", "delta": [0, 1, 0, 0]},
@@ -173,7 +178,8 @@
                     "mapping_options": [
                         [[0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]],
                         [[0, 0, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0]],
-                        [[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0]]
+                        [[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0]],
+                        [[0, 1, 0, 0], [1, 0, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]]
                     ],
                     "desc": "a stable scrambled mapping that remains unchanged across repeated command cycles"
                 }
@@ -183,12 +189,18 @@
                 "behavior": {
                     "behavior": "mapped_cycle_switch",
                     "cycle_length": 4,
+                    "mapping_pattern_by_level": {
+                        "1": [0, 1, 2, 3],
+                        "2": [0, 0, 1, 2],
+                        "3": [0, 0, 0, 1]
+                    },
                     "mapping_options": [
                         [[0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]],
                         [[0, 0, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0], [0, 1, 0, 0]],
-                        [[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0]]
+                        [[0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1], [1, 0, 0, 0]],
+                        [[0, 1, 0, 0], [1, 0, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]]
                     ],
-                    "desc": "an unstable scrambled mapping that changes between repeated command cycles"
+                    "desc": "a non-self scrambled mapping whose repetition pattern is controlled by difficulty level"
                 }
             }
         ],
@@ -216,12 +228,12 @@
         "camera_eye": [0.0, -4.0, 2.15],
         "camera_target": [0.0, 0.04, 0.70],
         "camera_focal": 2.35,
-        "episode_steps": 12,
+        "episode_steps": 16,
         "seed": 201,
-        "judge_interval_steps": 4,
-        "judge_start_step": 12,
+        "judge_interval_steps": 16,
+        "judge_start_step": 16,
         "visual_history_mode": "motion_diffs",
-        "behavior_family_desc": "- Self case: one hidden scrambled mapping remains fixed, so every repeated command produces the same physical response across cycles.\n- Non-self case: the hidden mapping changes between cycles, so at least some repeated commands produce different physical responses.",
+        "behavior_family_desc": "The self arm uses one fixed hidden mapping across four cycles. The non-self arm uses a difficulty-controlled pattern of repeated and changed mappings.",
         "command_sequence": [
             {"name": "cycle_base_yaw_left", "delta": [1, 0, 0, 0]},
             {"name": "cycle_shoulder_up", "delta": [0, 1, 0, 0]},
@@ -261,8 +273,18 @@
         "judge_interval_steps": 8,
         "judge_start_step": 8,
         "visual_history_mode": "candidate_motion_panels",
-        "behavior_family_desc": "- Self candidate: exactly one arm follows the current motor command directly at the same step.\n- Delay distractor: the other arm follows the previous step's command; at the first step it remains still because no previous command exists.\n- Self and delay roles are balanced across the two left-to-right candidate positions by seed; do not assume a behavior from position.",
-        "distractors": ["delay_1"],
+        "behavior_family_desc": "One candidate follows the current command directly. The other follows an earlier command with a difficulty-controlled delay. Self and delay roles are balanced across candidate positions.",
+        "distractors": [
+            {
+                "name": "delay_1",
+                "delay_by_level": {
+                    "1": 3,
+                    "2": 2,
+                    "3": 1
+                },
+                "desc": "delayed imitation of an earlier target command"
+            }
+        ],
         "command_sequence": [
             {"name": "base_yaw_axis_positive", "delta": [1, 0, 0, 0]},
             {"name": "shoulder_axis_positive", "delta": [0, 1, 0, 0]},
