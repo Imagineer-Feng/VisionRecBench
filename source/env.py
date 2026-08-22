@@ -237,6 +237,7 @@ class VisionRecBenchEnv:
             metallic=0.0,
             roughness=float(self.task_dict.get("floor_roughness", 0.65)),
         )
+        self._create_environment(floor_width, floor_depth)
 
         light = UsdLux.DistantLight.Define(self.stage, Sdf.Path("/World/KeyLight"))
         light.CreateIntensityAttr(float(self.task_dict.get("key_light_intensity", 4200.0)))
@@ -254,6 +255,359 @@ class VisionRecBenchEnv:
         fill.CreateColorAttr(Gf.Vec3f(*self._cfg_vec("fill_light_color", [0.90, 0.94, 1.0])))
         fill_position = self._cfg_vec("fill_light_position", [0.0, -2.2, 2.2])
         UsdGeom.Xformable(fill.GetPrim()).AddTranslateOp().Set(Gf.Vec3f(*fill_position))
+
+    def _create_visual_box(
+        self,
+        name,
+        position,
+        scale,
+        color,
+        metallic=0.0,
+        roughness=0.62,
+    ):
+        prim_path = f"/World/Environment/{name}"
+        cube = UsdGeom.Cube.Define(self.stage, Sdf.Path(prim_path))
+        cube.CreateSizeAttr(1.0)
+        xform = UsdGeom.Xformable(cube.GetPrim())
+        xform.AddTranslateOp().Set(Gf.Vec3f(*position))
+        xform.AddScaleOp().Set(Gf.Vec3f(*scale))
+        self._create_and_bind_material(
+            prim_path,
+            f"/World/Looks/Environment_{name}",
+            color=color,
+            metallic=metallic,
+            roughness=roughness,
+        )
+
+    def _create_environment(self, floor_width, floor_depth):
+        environment = self.task_dict.get("environment")
+        if not environment:
+            return
+
+        UsdGeom.Xform.Define(self.stage, Sdf.Path("/World/Environment"))
+        template_id = environment["id"]
+        wall = environment["wall_color"]
+        ground = environment["ground_color"]
+        structure = environment["structure_color"]
+        panel = environment["panel_color"]
+        accent = environment["accent_color"]
+        secondary = environment["secondary_accent_color"]
+        shift_x, shift_y = environment.get("prop_shift", [0.0, 0.0])
+
+        half_width = floor_width / 2.0
+        back_y = 0.25 + floor_depth / 2.0 + 0.10
+        self._create_visual_box(
+            "GroundSlab",
+            [0.0, 0.30, -0.14],
+            [floor_width + 1.8, floor_depth + 2.5, 0.16],
+            ground,
+            roughness=0.88,
+        )
+        self._create_visual_box(
+            "BackWall",
+            [0.0, back_y + 0.07, 1.42],
+            [floor_width + 1.7, 0.14, 2.85],
+            wall,
+            roughness=0.76,
+        )
+        self._create_visual_box(
+            "BackWallLowerTrim",
+            [0.0, back_y - 0.015, 0.22],
+            [floor_width + 1.45, 0.06, 0.18],
+            structure,
+            metallic=0.25,
+        )
+        self._create_visual_box(
+            "CeilingBeam",
+            [0.0, back_y - 0.08, 2.55],
+            [floor_width + 1.35, 0.20, 0.18],
+            structure,
+            metallic=0.35,
+        )
+        self._create_visual_box(
+            "FloorSafetyLine",
+            [0.0, -0.82, 0.007],
+            [max(1.0, floor_width - 0.45), 0.075, 0.012],
+            accent,
+            roughness=0.72,
+        )
+        for index, x in enumerate((-half_width + 0.28, half_width - 0.28)):
+            self._create_visual_box(
+                f"SidePost_{index}",
+                [x, back_y - 0.03, 1.30],
+                [0.16, 0.18, 2.45],
+                structure,
+                metallic=0.30,
+            )
+
+        if template_id == "robotics_lab":
+            self._create_robotics_lab(
+                half_width,
+                back_y,
+                shift_x,
+                shift_y,
+                structure,
+                panel,
+                accent,
+                secondary,
+                environment,
+            )
+        elif template_id == "assembly_cell":
+            self._create_assembly_cell(
+                half_width,
+                back_y,
+                shift_x,
+                shift_y,
+                structure,
+                panel,
+                accent,
+                secondary,
+                environment,
+            )
+        elif template_id == "inspection_bay":
+            self._create_inspection_bay(
+                half_width,
+                back_y,
+                shift_x,
+                shift_y,
+                structure,
+                panel,
+                accent,
+                secondary,
+                environment,
+            )
+        else:
+            raise ValueError(f"Unsupported environment template: {template_id}")
+
+    def _create_robotics_lab(
+        self,
+        half_width,
+        back_y,
+        shift_x,
+        shift_y,
+        structure,
+        panel,
+        accent,
+        secondary,
+        environment,
+    ):
+        bench_width = max(1.6, half_width * 1.15)
+        bench_y = back_y - 0.28 + shift_y
+        self._create_visual_box(
+            "LabBenchTop",
+            [shift_x, bench_y, 0.58],
+            [bench_width, 0.42, 0.10],
+            panel,
+            metallic=0.18,
+        )
+        for index, x in enumerate((-bench_width * 0.40, bench_width * 0.40)):
+            self._create_visual_box(
+                f"LabBenchLeg_{index}",
+                [shift_x + x, bench_y, 0.29],
+                [0.10, 0.30, 0.58],
+                structure,
+                metallic=0.32,
+            )
+        monitor_spacing = min(0.72, bench_width * 0.30)
+        screen_colors = (accent, secondary)
+        for index, x in enumerate((-monitor_spacing, monitor_spacing)):
+            self._create_visual_box(
+                f"MonitorFrame_{index}",
+                [shift_x + x, bench_y - 0.10, 1.05],
+                [0.58, 0.10, 0.42],
+                structure,
+                metallic=0.22,
+            )
+            self._create_visual_box(
+                f"MonitorScreen_{index}",
+                [shift_x + x, bench_y - 0.158, 1.05],
+                [0.47, 0.018, 0.31],
+                screen_colors[index],
+                roughness=0.32,
+            )
+        cabinet_x = half_width + 0.22
+        for index, x in enumerate((-cabinet_x, cabinet_x)):
+            self._create_visual_box(
+                f"LabCabinet_{index}",
+                [x, back_y - 0.15, 0.68],
+                [0.46, 0.42, 1.35],
+                structure,
+                metallic=0.28,
+            )
+            for drawer in range(3):
+                self._create_visual_box(
+                    f"LabDrawer_{index}_{drawer}",
+                    [x, back_y - 0.372, 0.35 + drawer * 0.31],
+                    [0.34, 0.018, 0.21],
+                    panel if drawer % 2 == 0 else accent,
+                    roughness=0.55,
+                )
+        self._create_wall_bins(
+            "LabBin",
+            back_y,
+            shift_x,
+            1.72,
+            panel,
+            accent,
+            secondary,
+            environment,
+        )
+
+    def _create_assembly_cell(
+        self,
+        half_width,
+        back_y,
+        shift_x,
+        shift_y,
+        structure,
+        panel,
+        accent,
+        secondary,
+        environment,
+    ):
+        fence_y = back_y - 0.30 + shift_y
+        fence_width = half_width * 1.45
+        for index, x in enumerate(
+            np.linspace(-fence_width / 2.0, fence_width / 2.0, 5)
+        ):
+            self._create_visual_box(
+                f"FencePost_{index}",
+                [float(x) + shift_x, fence_y, 1.12],
+                [0.065, 0.075, 2.05],
+                accent,
+                metallic=0.35,
+            )
+        for index, z in enumerate((0.50, 1.18, 1.82)):
+            self._create_visual_box(
+                f"FenceRail_{index}",
+                [shift_x, fence_y, z],
+                [fence_width, 0.065, 0.055],
+                accent,
+                metallic=0.35,
+            )
+
+        rack_x = -half_width - 0.20
+        for index, x in enumerate((rack_x - 0.24, rack_x + 0.24)):
+            self._create_visual_box(
+                f"RackPost_{index}",
+                [x, back_y - 0.12, 1.05],
+                [0.08, 0.34, 1.95],
+                structure,
+                metallic=0.30,
+            )
+        for index, z in enumerate((0.30, 0.87, 1.45, 2.02)):
+            self._create_visual_box(
+                f"RackShelf_{index}",
+                [rack_x, back_y - 0.12, z],
+                [0.62, 0.42, 0.07],
+                panel,
+                metallic=0.18,
+            )
+        crate_x = half_width + 0.18
+        crate_colors = (panel, accent, secondary)
+        for index in range(3):
+            self._create_visual_box(
+                f"AssemblyCrate_{index}",
+                [
+                    crate_x + (index % 2) * 0.12,
+                    back_y - 0.26 - (index % 2) * 0.04,
+                    0.20 + index * 0.36,
+                ],
+                [0.54, 0.46, 0.31],
+                crate_colors[environment["bin_color_order"][index]],
+                roughness=0.78,
+            )
+
+    def _create_inspection_bay(
+        self,
+        half_width,
+        back_y,
+        shift_x,
+        shift_y,
+        structure,
+        panel,
+        accent,
+        secondary,
+        environment,
+    ):
+        board_y = back_y - 0.086
+        self._create_visual_box(
+            "InspectionBoard",
+            [shift_x, board_y, 1.48],
+            [1.72, 0.035, 1.20],
+            structure,
+            metallic=0.12,
+        )
+        tile_colors = (panel, accent, secondary)
+        variant = int(environment.get("panel_variant", 0))
+        for row in range(3):
+            for column in range(4):
+                color = tile_colors[(row + column + variant) % len(tile_colors)]
+                self._create_visual_box(
+                    f"InspectionTile_{row}_{column}",
+                    [
+                        shift_x - 0.60 + column * 0.40,
+                        board_y - 0.025,
+                        1.12 + row * 0.36,
+                    ],
+                    [0.31, 0.018, 0.27],
+                    color,
+                    roughness=0.48,
+                )
+
+        console_x = half_width + 0.16
+        self._create_visual_box(
+            "InspectionConsole",
+            [console_x, back_y - 0.28 + shift_y, 0.60],
+            [0.55, 0.48, 1.18],
+            structure,
+            metallic=0.22,
+        )
+        self._create_visual_box(
+            "InspectionConsoleScreen",
+            [console_x, back_y - 0.528 + shift_y, 0.77],
+            [0.38, 0.018, 0.32],
+            accent,
+            roughness=0.30,
+        )
+        tower_x = -half_width - 0.14
+        self._create_visual_box(
+            "InspectionTower",
+            [tower_x, back_y - 0.17, 0.85],
+            [0.20, 0.25, 1.55],
+            structure,
+            metallic=0.30,
+        )
+        for index, color in enumerate((accent, secondary, panel)):
+            self._create_visual_box(
+                f"InspectionStatus_{index}",
+                [tower_x, back_y - 0.305, 1.20 + index * 0.22],
+                [0.12, 0.025, 0.12],
+                color,
+                roughness=0.35,
+            )
+
+    def _create_wall_bins(
+        self,
+        prefix,
+        back_y,
+        shift_x,
+        z,
+        panel,
+        accent,
+        secondary,
+        environment,
+    ):
+        colors = (panel, accent, secondary)
+        for index, x in enumerate((-0.62, 0.0, 0.62)):
+            color_index = environment["bin_color_order"][index]
+            self._create_visual_box(
+                f"{prefix}_{index}",
+                [shift_x + x, back_y - 0.09, z],
+                [0.42, 0.18, 0.30],
+                colors[color_index],
+                roughness=0.72,
+            )
 
     def _create_arms(self):
         spacing = float(self.task_dict["layout_spacing"])

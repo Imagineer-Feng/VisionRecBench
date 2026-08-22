@@ -5,6 +5,7 @@ import json
 import numpy as np
 
 from source.difficulty import DIFFICULTY_LEVELS
+from source.environment_config import sample_environment
 from source.preprocess import construct
 from source.task_logic import (
     build_mismatched_command_schedule,
@@ -20,7 +21,7 @@ STANDARD_SCENARIOS = (
     "scene3_dyad_causal_identification",
 )
 
-SAMPLING_PROFILE = "paired_robust_v2"
+SAMPLING_PROFILE = "paired_lab_v3"
 NUISANCE_PAIR_SIZE = 2
 
 
@@ -226,6 +227,7 @@ def canonical_episode_signature(task):
         "fill_light_intensity": task.get("fill_light_intensity"),
         "floor_color": task.get("floor_color"),
         "background_color": task.get("background_color"),
+        "environment": task.get("environment"),
     }
     return _stable_hash(signature_payload)
 
@@ -256,11 +258,18 @@ def build_episode_task(
     rng = _episode_rng(base_seed, scene, episode_index)
     task["seed"] = episode_seed
 
+    environment = sample_environment(
+        rng,
+        nuisance_pair_index=nuisance_pair_index,
+        base_seed=base_seed,
+    )
+    task["environment"] = copy.deepcopy(environment)
     nuisance_variation = {
         "commands": _vary_commands(task, rng),
         "initial_pose": _vary_initial_pose(task, rng),
         "camera": _vary_camera(task, rng),
         "appearance": _vary_lighting_and_colors(task, rng),
+        "environment": environment,
     }
     nuisance_signature = _stable_hash(nuisance_variation)
     variation = {

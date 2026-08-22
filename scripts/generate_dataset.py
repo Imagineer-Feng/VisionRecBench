@@ -21,6 +21,7 @@ from source.multimodal import (  # noqa: E402
     save_rgb,
 )
 from source.difficulty import DIFFICULTY_LEVELS  # noqa: E402
+from source.environment_config import ENVIRONMENT_TEMPLATE_IDS  # noqa: E402
 from source.dataset_io import (  # noqa: E402
     DATASET_SCHEMA_VERSION,
     atomic_write_json,
@@ -130,6 +131,7 @@ def sampling_plan(args):
             f"Sampling plan contains {duplicate_count} duplicate episode signatures."
         )
     pair_signatures = {}
+    pair_templates = {}
     pair_members = Counter()
     pair_ids_by_group = {}
     for task in tasks:
@@ -139,6 +141,12 @@ def sampling_plan(args):
         if previous_signature != signature:
             raise RuntimeError(
                 f"Nuisance pair {pair_id} differs across conditions or levels."
+            )
+        template_id = task["environment"]["id"]
+        previous_template = pair_templates.setdefault(pair_id, template_id)
+        if previous_template != template_id:
+            raise RuntimeError(
+                f"Environment template differs within nuisance pair {pair_id}."
             )
         group = (task["name"], task["difficulty_level"], pair_id)
         pair_members[group] += 1
@@ -164,6 +172,16 @@ def sampling_plan(args):
                 raise RuntimeError(
                     f"Nuisance pair IDs differ across levels for {scenario}."
                 )
+            template_counts = Counter(
+                pair_templates[pair_id] for pair_id in pair_ids
+            )
+            if set(template_counts) != set(ENVIRONMENT_TEMPLATE_IDS) or len(
+                set(template_counts.values())
+            ) != 1:
+                raise RuntimeError(
+                    f"Environment templates are not balanced for "
+                    f"{scenario}/level{level}: {dict(template_counts)}"
+                )
     return tasks
 
 
@@ -174,6 +192,10 @@ def plan_report(tasks):
     )
     pair_reuse_counts = Counter(
         Counter(task["nuisance_pair_id"] for task in tasks).values()
+    )
+    environment_template_counts = Counter(
+        (task["name"], task["difficulty_level"], task["environment"]["id"])
+        for task in tasks
     )
     return {
         "profile": SAMPLING_PROFILE,
@@ -191,6 +213,11 @@ def plan_report(tasks):
         "nuisance_pair_reuse_counts": {
             str(reuse_count): pair_count
             for reuse_count, pair_count in sorted(pair_reuse_counts.items())
+        },
+        "environment_template_counts": {
+            f"{scenario}/level{level}/{template_id}": count
+            for (scenario, level, template_id), count
+            in sorted(environment_template_counts.items())
         },
         "first_episode_ids": [task["episode_id"] for task in tasks[:3]],
     }
@@ -210,6 +237,7 @@ def metadata_for(args):
         BASE_DIR / "scripts" / "generate_dataset.py",
         BASE_DIR / "source" / "dataset_io.py",
         BASE_DIR / "source" / "difficulty.py",
+        BASE_DIR / "source" / "environment_config.py",
         BASE_DIR / "source" / "episode_sampling.py",
         BASE_DIR / "source" / "env.py",
         BASE_DIR / "source" / "multimodal.py",
@@ -232,6 +260,7 @@ def metadata_for(args):
         "episodes_per_scene_per_level": int(args.episodes_per_scene),
         "paired_nuisance": True,
         "nuisance_pair_size": NUISANCE_PAIR_SIZE,
+        "environment_templates": list(ENVIRONMENT_TEMPLATE_IDS),
         "base_seed": int(args.base_seed),
         "render_config": copy.deepcopy(RENDER_CONFIG),
         "source_revision": source_revision,
@@ -264,6 +293,7 @@ def prepare_dataset_root(args):
             "episodes_per_scene_per_level",
             "paired_nuisance",
             "nuisance_pair_size",
+            "environment_templates",
             "base_seed",
             "render_config",
             "generator_source_sha256",
@@ -357,6 +387,7 @@ def render_episode(env, task, dataset_root):
         "difficulty_name": task["difficulty_name"],
         "nuisance_pair_id": task["nuisance_pair_id"],
         "nuisance_signature": task["nuisance_signature"],
+        "environment_template": task["environment"]["id"],
         "sampling_profile": task["episode_variation"]["profile"],
         "task": resolved_task,
         "control_labels": control_labels,

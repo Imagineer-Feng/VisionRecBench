@@ -94,6 +94,7 @@ class DatasetIOTest(unittest.TestCase):
                 "task_mode": "single_binary",
                 "nuisance_pair_id": pair_id,
                 "nuisance_signature": signature,
+                "environment": {"id": "robotics_lab"},
             }
             record = {
                 "schema_version": DATASET_SCHEMA_VERSION,
@@ -107,6 +108,7 @@ class DatasetIOTest(unittest.TestCase):
                 "difficulty_name": "easy",
                 "nuisance_pair_id": pair_id,
                 "nuisance_signature": signature,
+                "environment_template": "robotics_lab",
                 "target_present": target_present,
                 "target_index": 1 if target_present else None,
                 "answer_index": answer_index,
@@ -135,6 +137,7 @@ class DatasetIOTest(unittest.TestCase):
             "episodes_per_scene_per_level": 2,
             "paired_nuisance": True,
             "nuisance_pair_size": 2,
+            "environment_templates": ["robotics_lab"],
             "content_sha256": dataset_content_hash(rows),
         }
         atomic_write_json(root / "metadata.json", metadata)

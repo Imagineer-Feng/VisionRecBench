@@ -112,6 +112,8 @@ def episode_summary(record, dataset_root):
     if "nuisance_pair_id" in record:
         summary["nuisance_pair_id"] = record["nuisance_pair_id"]
         summary["nuisance_signature"] = record["nuisance_signature"]
+    if "environment_template" in record:
+        summary["environment_template"] = record["environment_template"]
     return summary
 
 
@@ -209,6 +211,8 @@ def validate_dataset(dataset_root, verify_checksums=True):
     nuisance_pair_signatures = defaultdict(set)
     nuisance_pair_conditions = defaultdict(Counter)
     nuisance_pair_ids_by_group = defaultdict(set)
+    environment_template_counts = defaultdict(Counter)
+    nuisance_pair_templates = defaultdict(set)
     task_modes = {}
     for summary in rows:
         episode_id = summary.get("episode_id", "<unknown>")
@@ -241,6 +245,7 @@ def validate_dataset(dataset_root, verify_checksums=True):
         paired_nuisance = bool(metadata.get("paired_nuisance", False))
         nuisance_pair_id = record.get("nuisance_pair_id")
         nuisance_signature = record.get("nuisance_signature")
+        environment_template = record.get("environment_template")
         if paired_nuisance:
             if not nuisance_pair_id:
                 errors.append(f"{episode_id}: missing nuisance pair ID")
@@ -251,6 +256,17 @@ def validate_dataset(dataset_root, verify_checksums=True):
                 errors.append(f"{episode_id}: task/record nuisance pair mismatch")
             if task.get("nuisance_signature") != nuisance_signature:
                 errors.append(f"{episode_id}: task/record nuisance signature mismatch")
+        configured_templates = metadata.get("environment_templates", [])
+        if configured_templates:
+            if environment_template not in configured_templates:
+                errors.append(f"{episode_id}: invalid environment template")
+            if (
+                record.get("task", {}).get("environment", {}).get("id")
+                != environment_template
+            ):
+                errors.append(
+                    f"{episode_id}: task/record environment template mismatch"
+                )
         group = (
             scenario
             if difficulty_level is None
@@ -272,6 +288,8 @@ def validate_dataset(dataset_root, verify_checksums=True):
             behavior_positions[group][
                 (candidate.get("behavior"), candidate.get("index"))
             ] += 1
+        if environment_template is not None:
+            environment_template_counts[group][environment_template] += 1
 
         if record.get("schema_version") not in SUPPORTED_DATASET_SCHEMA_VERSIONS:
             errors.append(f"{episode_id}: unsupported record schema version")
@@ -290,6 +308,8 @@ def validate_dataset(dataset_root, verify_checksums=True):
             summary_fields.extend(("difficulty_level", "difficulty_name"))
         if nuisance_pair_id is not None:
             summary_fields.extend(("nuisance_pair_id", "nuisance_signature"))
+        if environment_template is not None:
+            summary_fields.append("environment_template")
         mismatched_fields = [
             key for key in summary_fields if summary.get(key) != record.get(key)
         ]
@@ -348,6 +368,10 @@ def validate_dataset(dataset_root, verify_checksums=True):
             nuisance_pair_ids_by_group[(scenario, difficulty_level)].add(
                 nuisance_pair_id
             )
+            if environment_template is not None:
+                nuisance_pair_templates[cross_level_key].add(
+                    environment_template
+                )
             if record.get("task", {}).get("task_mode") == "single_binary":
                 condition = bool(record.get("target_present"))
             else:
@@ -392,6 +416,15 @@ def validate_dataset(dataset_root, verify_checksums=True):
             if task_modes.get(group) == "multi_arm" and values:
                 if max(values) - min(values) > 1:
                     errors.append(f"{group}: behavior positions are not balanced")
+            configured_templates = metadata.get("environment_templates", [])
+            if configured_templates:
+                template_counts = environment_template_counts[group]
+                if set(template_counts) != set(configured_templates) or len(
+                    set(template_counts.values())
+                ) != 1:
+                    errors.append(
+                        f"{group}: environment templates are not balanced"
+                    )
 
     if metadata.get("paired_nuisance", False):
         expected_pair_size = int(metadata.get("nuisance_pair_size", 0))
@@ -402,6 +435,12 @@ def validate_dataset(dataset_root, verify_checksums=True):
                 errors.append(
                     f"{key[0]}/{key[1]}: nuisance signature differs across "
                     "conditions or difficulty levels"
+                )
+        for key, templates_for_pair in nuisance_pair_templates.items():
+            if len(templates_for_pair) != 1:
+                errors.append(
+                    f"{key[0]}/{key[1]}: environment template differs "
+                    "across conditions or difficulty levels"
                 )
         for key, condition_counts in nuisance_pair_conditions.items():
             member_count = sum(condition_counts.values())
@@ -468,6 +507,10 @@ def validate_dataset(dataset_root, verify_checksums=True):
             for scenario, counter in behavior_positions.items()
         },
         "nuisance_pair_groups": len(nuisance_pair_conditions),
+        "environment_templates": {
+            group: dict(counter)
+            for group, counter in environment_template_counts.items()
+        },
         "errors": errors,
         "warnings": warnings,
     }

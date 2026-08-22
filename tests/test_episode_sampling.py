@@ -5,6 +5,7 @@ from collections import Counter
 import numpy as np
 
 from source.difficulty import DIFFICULTY_LEVELS
+from source.environment_config import ENVIRONMENT_TEMPLATE_IDS
 from source.episode_sampling import (
     STANDARD_SCENARIOS,
     build_episode_task,
@@ -30,6 +31,7 @@ class EpisodeSamplingTest(unittest.TestCase):
         "fill_light_intensity",
         "floor_color",
         "background_color",
+        "environment",
     )
 
     def test_sampling_is_deterministic(self):
@@ -163,6 +165,44 @@ class EpisodeSamplingTest(unittest.TestCase):
             self.assertNotEqual(
                 first["nuisance_signature"], next_pair["nuisance_signature"]
             )
+
+    def test_environment_templates_are_balanced_within_every_condition(self):
+        for scenario in STANDARD_SCENARIOS:
+            for level in DIFFICULTY_LEVELS:
+                counts = Counter()
+                for index in range(48):
+                    task = build_episode_task(
+                        scenario,
+                        index,
+                        level=level,
+                        base_seed=19,
+                    )
+                    if task["task_mode"] == "single_binary":
+                        options = task["visible_arm_behavior_options"]
+                        selected = select_behavior_option(
+                            options,
+                            task["seed"],
+                            task["behavior_selection"],
+                        )
+                        condition = bool(options[selected]["target_present"])
+                    else:
+                        assignments = build_multi_arm_role_assignment(
+                            task["num_arms"],
+                            task["distractors"],
+                            task["seed"],
+                        )
+                        condition = next(
+                            assignment["index"]
+                            for assignment in assignments
+                            if assignment["role"] == "target"
+                        )
+                    counts[(condition, task["environment"]["id"])] += 1
+
+                self.assertEqual(
+                    {template for _, template in counts},
+                    set(ENVIRONMENT_TEMPLATE_IDS),
+                )
+                self.assertEqual(set(counts.values()), {8})
 
     def test_sampling_changes_commands_pose_camera_and_lighting(self):
         scenario = "scene3_dyad_causal_identification"

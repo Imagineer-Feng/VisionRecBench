@@ -34,6 +34,7 @@ VisionRecBench/
     dataset_io.py           # frozen dataset records and validation
     difficulty.py           # level names and per-level config resolution
     env.py                  # Isaac Sim environment and Panda loading
+    environment_config.py   # balanced procedural laboratory templates
     episode_sampling.py     # balanced deterministic episode sampling
     multimodal.py           # shared image evidence and model input assembly
     preprocess.py           # scenario/config loading
@@ -46,6 +47,7 @@ VisionRecBench/
     scenario_repo.json
   scripts/
     generate_dataset.py
+    render_environment_previews.py
     validate_dataset.py
     evaluate_dataset.py
     summarize_offline_results.py
@@ -101,9 +103,17 @@ $ISAACSIM_ROOT/python.sh scripts/generate_dataset.py \
   --headless
 ```
 
-The `paired_robust_v2` sampler uses strict two-episode nuisance pairs. For every scene, indices `2k` and `2k+1` share the exact command order and amplitude, initial pose, camera, lighting, floor, background, and any future environment variation sampled through the paired RNG. Scene 1/2 change only between self and non-self behavior; Scene 3 changes only which left/right candidate is self. The same pair is also reused at all selected difficulty levels.
+The `paired_lab_v3` sampler uses strict two-episode nuisance pairs. For every scene, indices `2k` and `2k+1` share the exact command order and amplitude, initial pose, camera, lighting, floor, background, and procedural laboratory environment. Scene 1/2 change only between self and non-self behavior; Scene 3 changes only which left/right candidate is self. The same pair is also reused at all selected difficulty levels.
 
-Each record stores a `nuisance_pair_id` and a content-derived `nuisance_signature`. The deterministic plan and dataset validator reject incomplete pairs, unequal signatures, or pair sets that differ across levels. With the default plan there are 72 nuisance pairs, each reused by two conditions across three levels, giving six episodes per pair. Generation also writes image checksums, `manifest.jsonl`, and `metadata.json`. Use `--resume` to continue an interrupted generation with matching configuration and source hashes.
+The visual context rotates evenly among three procedural templates: `robotics_lab`, `assembly_cell`, and `inspection_bay`. They add walls, floor markings, structural beams, workbenches, monitors, cabinets, shelving, bins, safety fencing, crates, calibration panels, and inspection consoles without placing answer-correlated objects near a candidate. These first-version props are static visual geometry with no collision or independent motion, keeping background richness separate from causal-task difficulty. Because every valid episode count is divisible by 12, every template appears equally often in every scene, difficulty, and answer condition.
+
+Render one initial-observation preview for each template before generating the full dataset:
+
+```shell
+$ISAACSIM_ROOT/python.sh scripts/render_environment_previews.py --headless
+```
+
+Each record stores a `nuisance_pair_id`, a content-derived `nuisance_signature`, and its `environment_template`. The deterministic plan and dataset validator reject incomplete pairs, unequal signatures, unbalanced templates, or pair sets that differ across levels. With the default plan there are 72 nuisance pairs, each reused by two conditions across three levels, giving six episodes per pair. Generation also writes image checksums, `manifest.jsonl`, and `metadata.json`. Use `--resume` to continue an interrupted generation with matching configuration and source hashes.
 
 ## 3. Validate the dataset
 
@@ -111,7 +121,7 @@ Each record stores a `nuisance_pair_id` and a content-derived `nuisance_signatur
 python3 scripts/validate_dataset.py datasets/visionrecbench_robust_v3
 ```
 
-Validation checks record structure, images, checksums, episode uniqueness, per-scene/per-level balance, and strict nuisance-pair equality across conditions and levels. `--skip-checksums` provides a faster structural check.
+Validation checks record structure, images, checksums, episode uniqueness, per-scene/per-level balance, equal environment-template frequency, and strict nuisance-pair equality across conditions and levels. `--skip-checksums` provides a faster structural check.
 
 ## 4. Evaluate offline
 
