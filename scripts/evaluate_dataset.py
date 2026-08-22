@@ -184,6 +184,8 @@ def evaluate_one(
         "api_endpoint": sanitized_api_endpoint(model),
         "difficulty_level": int(record["difficulty_level"]),
         "difficulty_name": record["difficulty_name"],
+        "nuisance_pair_id": record.get("nuisance_pair_id"),
+        "nuisance_signature": record.get("nuisance_signature"),
         "random_seed": random_seed if model == "random" else None,
         "evaluated_at": utc_timestamp(),
         "input_content_sha256": content_sha256(content_items),
@@ -216,6 +218,11 @@ def main():
         raise SystemExit(
             "This evaluator requires a difficulty-level dataset with schema "
             f"{DATASET_SCHEMA_VERSION}; legacy datasets remain validation-only."
+        )
+    if not metadata.get("paired_nuisance", False):
+        raise SystemExit(
+            "This evaluator requires a strictly paired nuisance dataset; "
+            "regenerate the dataset with the current paired sampling profile."
         )
     rows = load_manifest(dataset_root)
     if args.scenario:
@@ -263,6 +270,8 @@ def main():
                 "episode_signature": record["episode_signature"],
                 "model": args.model,
                 "difficulty_level": level,
+                "nuisance_pair_id": record.get("nuisance_pair_id"),
+                "nuisance_signature": record.get("nuisance_signature"),
                 "input_content_sha256": expected_input_hash,
                 "random_seed": (
                     args.random_seed if args.model == "random" else None

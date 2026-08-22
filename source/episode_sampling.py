@@ -20,7 +20,8 @@ STANDARD_SCENARIOS = (
     "scene3_dyad_causal_identification",
 )
 
-SAMPLING_PROFILE = "robust_v1"
+SAMPLING_PROFILE = "paired_robust_v2"
+NUISANCE_PAIR_SIZE = 2
 
 
 def _round_list(values, digits=6):
@@ -28,12 +29,23 @@ def _round_list(values, digits=6):
 
 
 def _episode_rng(base_seed, scene, episode_index):
-    # Difficulty is deliberately omitted so the same episode index has matched
-    # commands, pose, camera, and appearance across all three levels.
+    # Consecutive condition episodes and all difficulty levels deliberately use
+    # the same random stream. Any future nuisance/environment variation must be
+    # sampled from this RNG so it remains condition- and level-independent.
+    nuisance_pair_index = int(episode_index) // NUISANCE_PAIR_SIZE
     seed_sequence = np.random.SeedSequence(
-        [int(base_seed), int(scene), int(episode_index)]
+        [int(base_seed), int(scene), nuisance_pair_index]
     )
     return np.random.default_rng(seed_sequence)
+
+
+def _stable_hash(payload):
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _vary_commands(task, rng):
@@ -215,12 +227,7 @@ def canonical_episode_signature(task):
         "floor_color": task.get("floor_color"),
         "background_color": task.get("background_color"),
     }
-    encoded = json.dumps(
-        signature_payload,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return _stable_hash(signature_payload)
 
 
 def build_episode_task(
@@ -239,21 +246,37 @@ def build_episode_task(
 
     task = construct({"scenario": scenario, "level": int(level)})
     scene = int(task["scene"])
-    episode_seed = int(base_seed) + int(episode_index)
+    nuisance_pair_index = int(episode_index) // NUISANCE_PAIR_SIZE
+    nuisance_pair_id = (
+        f"{task['name']}-base{int(base_seed)}-pair{nuisance_pair_index:05d}"
+    )
+    # Keep the two condition seeds consecutive with a shared quotient for all
+    # non-label sampling based on seed // 2, regardless of base_seed parity.
+    episode_seed = 2 * int(base_seed) + int(episode_index)
     rng = _episode_rng(base_seed, scene, episode_index)
     task["seed"] = episode_seed
 
+    nuisance_variation = {
+        "commands": _vary_commands(task, rng),
+        "initial_pose": _vary_initial_pose(task, rng),
+        "camera": _vary_camera(task, rng),
+        "appearance": _vary_lighting_and_colors(task, rng),
+    }
+    nuisance_signature = _stable_hash(nuisance_variation)
     variation = {
         "profile": profile,
         "base_seed": int(base_seed),
         "episode_index": int(episode_index),
         "episode_seed": episode_seed,
         "difficulty_level": int(level),
-        "commands": _vary_commands(task, rng),
-        "initial_pose": _vary_initial_pose(task, rng),
-        "camera": _vary_camera(task, rng),
-        "appearance": _vary_lighting_and_colors(task, rng),
+        "nuisance_pair_size": NUISANCE_PAIR_SIZE,
+        "nuisance_pair_index": nuisance_pair_index,
+        "nuisance_pair_id": nuisance_pair_id,
+        "nuisance_signature": nuisance_signature,
+        **nuisance_variation,
     }
+    task["nuisance_pair_id"] = nuisance_pair_id
+    task["nuisance_signature"] = nuisance_signature
     task["episode_variation"] = variation
     task["episode_signature"] = canonical_episode_signature(task)
     task["episode_id"] = (

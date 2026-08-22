@@ -101,7 +101,9 @@ $ISAACSIM_ROOT/python.sh scripts/generate_dataset.py \
   --headless
 ```
 
-The sampler pairs nuisance variables across levels: an episode index keeps the same command order and amplitude, initial pose, camera, lighting, floor, and background while only the configured physical difficulty changes. Generation writes immutable episode records, image checksums, `manifest.jsonl`, and `metadata.json`. Use `--resume` to continue an interrupted generation with matching configuration and source hashes.
+The `paired_robust_v2` sampler uses strict two-episode nuisance pairs. For every scene, indices `2k` and `2k+1` share the exact command order and amplitude, initial pose, camera, lighting, floor, background, and any future environment variation sampled through the paired RNG. Scene 1/2 change only between self and non-self behavior; Scene 3 changes only which left/right candidate is self. The same pair is also reused at all selected difficulty levels.
+
+Each record stores a `nuisance_pair_id` and a content-derived `nuisance_signature`. The deterministic plan and dataset validator reject incomplete pairs, unequal signatures, or pair sets that differ across levels. With the default plan there are 72 nuisance pairs, each reused by two conditions across three levels, giving six episodes per pair. Generation also writes image checksums, `manifest.jsonl`, and `metadata.json`. Use `--resume` to continue an interrupted generation with matching configuration and source hashes.
 
 ## 3. Validate the dataset
 
@@ -109,7 +111,7 @@ The sampler pairs nuisance variables across levels: an episode index keeps the s
 python3 scripts/validate_dataset.py datasets/visionrecbench_robust_v3
 ```
 
-Validation checks record structure, images, checksums, episode uniqueness, and per-scene/per-level balance. `--skip-checksums` provides a faster structural check.
+Validation checks record structure, images, checksums, episode uniqueness, per-scene/per-level balance, and strict nuisance-pair equality across conditions and levels. `--skip-checksums` provides a faster structural check.
 
 ## 4. Evaluate offline
 
@@ -131,7 +133,7 @@ Results are written to:
 results/offline/<dataset>/difficulty_level<level>/<model>/<scenario>/<episode>.json
 ```
 
-Each result records the frozen dataset hash, exact multimodal-input hash, episode signature, difficulty, raw response, parsed choice, label, and correctness. The evaluator accepts the new difficulty-level dataset schema only; legacy datasets remain readable by the validator but are not silently mixed into new experiments.
+Each result records the frozen dataset hash, exact multimodal-input hash, episode signature, nuisance-pair identity, difficulty, raw response, parsed choice, label, and correctness. The evaluator requires both the new difficulty-level schema and strict nuisance-pair metadata; legacy or unpaired datasets remain readable by the validator but are not silently mixed into new experiments.
 
 ## 5. Summarize results
 
@@ -141,7 +143,7 @@ python3 scripts/summarize_offline_results.py \
   --output results/offline/visionrecbench_robust_v3/summary.json
 ```
 
-The summary reports accuracy and invalid-response rate per model, scene, and difficulty. Binary scenes also report self/non-self recall, balanced accuracy, and self-attribution rate; the two-arm scene reports position recall and prediction distributions. Confidence intervals use independent episodes as the bootstrap unit.
+The summary reports accuracy and invalid-response rate per model, scene, and difficulty. Binary scenes also report self/non-self recall, balanced accuracy, and self-attribution rate; the two-arm scene reports position recall and prediction distributions. When complete paired results are available, confidence intervals use nuisance-pair cluster bootstrap rather than incorrectly treating the two matched episodes as independent.
 
 ## Reproducibility and legacy data
 

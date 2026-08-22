@@ -109,6 +109,9 @@ def episode_summary(record, dataset_root):
     if "difficulty_level" in record:
         summary["difficulty_level"] = int(record["difficulty_level"])
         summary["difficulty_name"] = record["difficulty_name"]
+    if "nuisance_pair_id" in record:
+        summary["nuisance_pair_id"] = record["nuisance_pair_id"]
+        summary["nuisance_signature"] = record["nuisance_signature"]
     return summary
 
 
@@ -203,6 +206,9 @@ def validate_dataset(dataset_root, verify_checksums=True):
     target_presence = defaultdict(Counter)
     mapping_options = defaultdict(Counter)
     behavior_positions = defaultdict(Counter)
+    nuisance_pair_signatures = defaultdict(set)
+    nuisance_pair_conditions = defaultdict(Counter)
+    nuisance_pair_ids_by_group = defaultdict(set)
     task_modes = {}
     for summary in rows:
         episode_id = summary.get("episode_id", "<unknown>")
@@ -232,6 +238,19 @@ def validate_dataset(dataset_root, verify_checksums=True):
                 errors.append(f"{episode_id}: invalid difficulty level")
             if not record.get("difficulty_name"):
                 errors.append(f"{episode_id}: missing difficulty name")
+        paired_nuisance = bool(metadata.get("paired_nuisance", False))
+        nuisance_pair_id = record.get("nuisance_pair_id")
+        nuisance_signature = record.get("nuisance_signature")
+        if paired_nuisance:
+            if not nuisance_pair_id:
+                errors.append(f"{episode_id}: missing nuisance pair ID")
+            if not nuisance_signature:
+                errors.append(f"{episode_id}: missing nuisance signature")
+            task = record.get("task", {})
+            if task.get("nuisance_pair_id") != nuisance_pair_id:
+                errors.append(f"{episode_id}: task/record nuisance pair mismatch")
+            if task.get("nuisance_signature") != nuisance_signature:
+                errors.append(f"{episode_id}: task/record nuisance signature mismatch")
         group = (
             scenario
             if difficulty_level is None
@@ -269,6 +288,8 @@ def validate_dataset(dataset_root, verify_checksums=True):
         ]
         if difficulty_level is not None:
             summary_fields.extend(("difficulty_level", "difficulty_name"))
+        if nuisance_pair_id is not None:
+            summary_fields.extend(("nuisance_pair_id", "nuisance_signature"))
         mismatched_fields = [
             key for key in summary_fields if summary.get(key) != record.get(key)
         ]
@@ -320,6 +341,19 @@ def validate_dataset(dataset_root, verify_checksums=True):
                 step_prefix,
             )
 
+        if paired_nuisance and nuisance_pair_id and nuisance_signature:
+            cross_level_key = (scenario, nuisance_pair_id)
+            nuisance_pair_signatures[cross_level_key].add(nuisance_signature)
+            within_level_key = (scenario, difficulty_level, nuisance_pair_id)
+            nuisance_pair_ids_by_group[(scenario, difficulty_level)].add(
+                nuisance_pair_id
+            )
+            if record.get("task", {}).get("task_mode") == "single_binary":
+                condition = bool(record.get("target_present"))
+            else:
+                condition = record.get("target_index")
+            nuisance_pair_conditions[within_level_key][condition] += 1
+
     configured_count = int(
         metadata.get(
             "episodes_per_scene_per_level",
@@ -359,6 +393,46 @@ def validate_dataset(dataset_root, verify_checksums=True):
                 if max(values) - min(values) > 1:
                     errors.append(f"{group}: behavior positions are not balanced")
 
+    if metadata.get("paired_nuisance", False):
+        expected_pair_size = int(metadata.get("nuisance_pair_size", 0))
+        if expected_pair_size != 2:
+            errors.append("paired nuisance datasets must use nuisance_pair_size=2")
+        for key, signatures_for_pair in nuisance_pair_signatures.items():
+            if len(signatures_for_pair) != 1:
+                errors.append(
+                    f"{key[0]}/{key[1]}: nuisance signature differs across "
+                    "conditions or difficulty levels"
+                )
+        for key, condition_counts in nuisance_pair_conditions.items():
+            member_count = sum(condition_counts.values())
+            if member_count != expected_pair_size:
+                errors.append(
+                    f"{key[0]}/level{key[1]}/{key[2]}: expected "
+                    f"{expected_pair_size} paired episodes, found {member_count}"
+                )
+            if len(condition_counts) != expected_pair_size or any(
+                count != 1 for count in condition_counts.values()
+            ):
+                errors.append(
+                    f"{key[0]}/level{key[1]}/{key[2]}: paired conditions "
+                    "are not one-to-one"
+                )
+        configured_levels = metadata.get("difficulty_levels", [])
+        for scenario in metadata.get("scenarios", []):
+            expected_pair_ids = None
+            for difficulty_level in configured_levels:
+                pair_ids = nuisance_pair_ids_by_group[
+                    (scenario, difficulty_level)
+                ]
+                if expected_pair_ids is None:
+                    expected_pair_ids = pair_ids
+                elif pair_ids != expected_pair_ids:
+                    errors.append(
+                        f"{scenario}: nuisance pair IDs differ across "
+                        "difficulty levels"
+                    )
+                    break
+
     current_hash = dataset_content_hash(rows)
     stored_hash = metadata.get("content_sha256")
     if not stored_hash:
@@ -393,6 +467,7 @@ def validate_dataset(dataset_root, verify_checksums=True):
             scenario: {str(key): value for key, value in counter.items()}
             for scenario, counter in behavior_positions.items()
         },
+        "nuisance_pair_groups": len(nuisance_pair_conditions),
         "errors": errors,
         "warnings": warnings,
     }

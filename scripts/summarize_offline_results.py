@@ -15,7 +15,8 @@ from source.offline_metrics import summarize_result_group  # noqa: E402
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Summarize frozen-dataset results with episode-level bootstrap intervals."
+            "Summarize frozen-dataset results with nuisance-pair cluster "
+            "bootstrap intervals when complete pairs are available."
         )
     )
     parser.add_argument("input", type=Path)

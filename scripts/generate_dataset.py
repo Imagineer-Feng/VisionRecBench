@@ -32,6 +32,7 @@ from source.dataset_io import (  # noqa: E402
     validate_dataset,
 )
 from source.episode_sampling import (  # noqa: E402
+    NUISANCE_PAIR_SIZE,
     SAMPLING_PROFILE,
     STANDARD_SCENARIOS,
     build_episode_task,
@@ -128,6 +129,41 @@ def sampling_plan(args):
         raise RuntimeError(
             f"Sampling plan contains {duplicate_count} duplicate episode signatures."
         )
+    pair_signatures = {}
+    pair_members = Counter()
+    pair_ids_by_group = {}
+    for task in tasks:
+        pair_id = task["nuisance_pair_id"]
+        signature = task["nuisance_signature"]
+        previous_signature = pair_signatures.setdefault(pair_id, signature)
+        if previous_signature != signature:
+            raise RuntimeError(
+                f"Nuisance pair {pair_id} differs across conditions or levels."
+            )
+        group = (task["name"], task["difficulty_level"], pair_id)
+        pair_members[group] += 1
+        pair_ids_by_group.setdefault(
+            (task["name"], task["difficulty_level"]), set()
+        ).add(pair_id)
+    invalid_pair_sizes = [
+        group for group, count in pair_members.items()
+        if count != NUISANCE_PAIR_SIZE
+    ]
+    if invalid_pair_sizes:
+        raise RuntimeError(
+            "Sampling plan contains incomplete nuisance pairs: "
+            f"{invalid_pair_sizes[:5]}"
+        )
+    for scenario in args.scenarios:
+        expected_pair_ids = None
+        for level in args.levels:
+            pair_ids = pair_ids_by_group[(scenario, level)]
+            if expected_pair_ids is None:
+                expected_pair_ids = pair_ids
+            elif pair_ids != expected_pair_ids:
+                raise RuntimeError(
+                    f"Nuisance pair IDs differ across levels for {scenario}."
+                )
     return tasks
 
 
@@ -135,6 +171,9 @@ def plan_report(tasks):
     scenario_level_counts = Counter(
         (task["name"], task["difficulty_level"])
         for task in tasks
+    )
+    pair_reuse_counts = Counter(
+        Counter(task["nuisance_pair_id"] for task in tasks).values()
     )
     return {
         "profile": SAMPLING_PROFILE,
@@ -146,6 +185,13 @@ def plan_report(tasks):
         "unique_signatures": len(
             {task["episode_signature"] for task in tasks}
         ),
+        "unique_nuisance_pairs": len(
+            {task["nuisance_pair_id"] for task in tasks}
+        ),
+        "nuisance_pair_reuse_counts": {
+            str(reuse_count): pair_count
+            for reuse_count, pair_count in sorted(pair_reuse_counts.items())
+        },
         "first_episode_ids": [task["episode_id"] for task in tasks[:3]],
     }
 
@@ -184,6 +230,8 @@ def metadata_for(args):
         "scenarios": list(args.scenarios),
         "difficulty_levels": list(args.levels),
         "episodes_per_scene_per_level": int(args.episodes_per_scene),
+        "paired_nuisance": True,
+        "nuisance_pair_size": NUISANCE_PAIR_SIZE,
         "base_seed": int(args.base_seed),
         "render_config": copy.deepcopy(RENDER_CONFIG),
         "source_revision": source_revision,
@@ -214,6 +262,8 @@ def prepare_dataset_root(args):
             "scenarios",
             "difficulty_levels",
             "episodes_per_scene_per_level",
+            "paired_nuisance",
+            "nuisance_pair_size",
             "base_seed",
             "render_config",
             "generator_source_sha256",
@@ -305,6 +355,8 @@ def render_episode(env, task, dataset_root):
         "seed": int(task["seed"]),
         "difficulty_level": int(task["difficulty_level"]),
         "difficulty_name": task["difficulty_name"],
+        "nuisance_pair_id": task["nuisance_pair_id"],
+        "nuisance_signature": task["nuisance_signature"],
         "sampling_profile": task["episode_variation"]["profile"],
         "task": resolved_task,
         "control_labels": control_labels,

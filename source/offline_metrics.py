@@ -19,13 +19,58 @@ def _bootstrap_mean(values, samples, rng):
     return _percentile_interval(estimates)
 
 
-def _stratified_macro_recall(rows, label_key, samples, rng):
+def _stratified_macro_recall(
+    rows,
+    label_key,
+    samples,
+    rng,
+    cluster_key=None,
+):
     strata = {}
     for row in rows:
         strata.setdefault(row[label_key], []).append(float(row["correct"]))
     recalls = [float(np.mean(values)) for values in strata.values()]
     score = float(np.mean(recalls)) if recalls else 0.0
-    if samples < 1 or any(len(values) < 2 for values in strata.values()):
+    if samples < 1:
+        rounded = round(score, 6)
+        return score, [rounded, rounded]
+
+    if cluster_key is not None:
+        clusters = {}
+        for row in rows:
+            clusters.setdefault(row[cluster_key], []).append(row)
+        if len(clusters) < 2:
+            rounded = round(score, 6)
+            return score, [rounded, rounded]
+        cluster_rows = list(clusters.values())
+        estimates = np.empty(samples, dtype=float)
+        for sample_index in range(samples):
+            sampled_indices = rng.integers(
+                0,
+                len(cluster_rows),
+                size=len(cluster_rows),
+            )
+            sampled_rows = [
+                row
+                for cluster_index in sampled_indices
+                for row in cluster_rows[cluster_index]
+            ]
+            sampled_recalls = [
+                float(
+                    np.mean(
+                        [
+                            bool(row["correct"])
+                            for row in sampled_rows
+                            if row[label_key] == label
+                        ]
+                    )
+                )
+                for label in strata
+            ]
+            estimates[sample_index] = float(np.mean(sampled_recalls))
+        return score, _percentile_interval(estimates)
+
+    if any(len(values) < 2 for values in strata.values()):
         rounded = round(score, 6)
         return score, [rounded, rounded]
 
@@ -63,10 +108,42 @@ def summarize_result_group(rows, bootstrap_samples=5000, seed=0):
     rng = np.random.default_rng(int(seed))
     correct = [float(bool(row.get("correct"))) for row in rows]
     valid = [float(bool(row.get("valid"))) for row in rows]
+    pair_ids = [row.get("nuisance_pair_id") for row in rows]
+    pair_counts = Counter(pair_ids)
+    use_pair_bootstrap = bool(pair_ids) and all(pair_ids) and set(
+        pair_counts.values()
+    ) == {2}
+    if use_pair_bootstrap:
+        accuracy_bootstrap_values = [
+            float(
+                np.mean(
+                    [
+                        bool(row.get("correct"))
+                        for row in rows
+                        if row["nuisance_pair_id"] == pair_id
+                    ]
+                )
+            )
+            for pair_id in pair_counts
+        ]
+        bootstrap_unit = "nuisance_pair"
+        independent_units = len(pair_counts)
+        cluster_key = "nuisance_pair_id"
+    else:
+        accuracy_bootstrap_values = correct
+        bootstrap_unit = "episode"
+        independent_units = len(rows)
+        cluster_key = None
     summary = {
         "episodes": len(rows),
+        "bootstrap_unit": bootstrap_unit,
+        "independent_units": independent_units,
         "accuracy": round(float(np.mean(correct)), 6),
-        "accuracy_ci95": _bootstrap_mean(correct, bootstrap_samples, rng),
+        "accuracy_ci95": _bootstrap_mean(
+            accuracy_bootstrap_values,
+            bootstrap_samples,
+            rng,
+        ),
         "invalid_rate": round(1.0 - float(np.mean(valid)), 6),
     }
 
@@ -89,6 +166,7 @@ def summarize_result_group(rows, bootstrap_samples=5000, seed=0):
             "target_present",
             bootstrap_samples,
             rng,
+            cluster_key=cluster_key,
         )
         semantic_predictions = [
             prediction
@@ -137,6 +215,7 @@ def summarize_result_group(rows, bootstrap_samples=5000, seed=0):
         "target_index",
         bootstrap_samples,
         rng,
+        cluster_key=cluster_key,
     )
     summary.update(
         {

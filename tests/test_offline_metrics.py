@@ -38,9 +38,27 @@ class OfflineMetricsTest(unittest.TestCase):
         )
         self.assertEqual(summary["macro_position_recall"], 0.5)
 
+    def test_complete_nuisance_pairs_are_the_bootstrap_unit(self):
+        rows = [
+            self._binary_row("a", True, True, 1, pair_id="pair-0"),
+            self._binary_row("b", False, True, 2, pair_id="pair-0"),
+            self._binary_row("c", True, False, 2, pair_id="pair-1"),
+            self._binary_row("d", False, False, 1, pair_id="pair-1"),
+        ]
+        summary = summarize_result_group(rows, bootstrap_samples=100, seed=0)
+        self.assertEqual(summary["bootstrap_unit"], "nuisance_pair")
+        self.assertEqual(summary["independent_units"], 2)
+        self.assertEqual(summary["accuracy"], 0.5)
+
     @staticmethod
-    def _binary_row(episode_id, target_present, correct, choice):
-        return {
+    def _binary_row(
+        episode_id,
+        target_present,
+        correct,
+        choice,
+        pair_id=None,
+    ):
+        row = {
             "episode_id": episode_id,
             "target_present": target_present,
             "target_index": 1 if target_present else None,
@@ -49,6 +67,9 @@ class OfflineMetricsTest(unittest.TestCase):
             "choice": choice,
             "answer_options": ["yes, self", "no, non-self"],
         }
+        if pair_id is not None:
+            row["nuisance_pair_id"] = pair_id
+        return row
 
     @staticmethod
     def _multi_row(episode_id, target_index, choice):
