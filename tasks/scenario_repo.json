@@ -273,7 +273,7 @@
         "judge_interval_steps": 8,
         "judge_start_step": 8,
         "visual_history_mode": "candidate_motion_panels",
-        "behavior_family_desc": "One candidate follows the current command directly. The other follows an earlier command with a difficulty-controlled delay. Self and delay roles are balanced across candidate positions.",
+        "behavior_family_desc": "The self arm follows the current command directly. The non-self arm follows an earlier command with a difficulty-controlled delay.",
         "distractors": [
             {
                 "name": "delay_1",

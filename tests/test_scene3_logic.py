@@ -31,6 +31,23 @@ class Scene3LogicTest(unittest.TestCase):
             self.assertEqual(task["distractors"][0]["behavior"], "delay")
             self.assertEqual(task["distractors"][0]["delay"], expected_delay)
 
+    def test_judgment_form_samples_direct_and_delayed_single_arms(self):
+        for level, expected_delay in ((1, 3), (2, 2), (3, 1)):
+            task = construct(
+                {
+                    "scenario": "scene3_dyad_causal_identification",
+                    "test_type": "judgment",
+                    "level": level,
+                }
+            )
+            self.assertEqual(task["task_mode"], "single_binary")
+            self.assertEqual(task["num_arms"], 1)
+            options = task["visible_arm_behavior_options"]
+            self.assertEqual(options[0]["behavior"]["behavior"], "direct")
+            self.assertEqual(options[1]["behavior"]["behavior"], "delay")
+            self.assertEqual(options[1]["behavior"]["delay"], expected_delay)
+            self.assertFalse(task["annotate_candidates"])
+
     def test_two_consecutive_seeds_balance_self_and_delay_positions(self):
         target_positions = []
         behavior_positions = defaultdict(list)

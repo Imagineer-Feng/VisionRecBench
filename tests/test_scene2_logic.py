@@ -135,6 +135,23 @@ class Scene2LogicTest(unittest.TestCase):
         )
         np.testing.assert_array_equal(commands, np.eye(4))
 
+    def test_choice_form_compares_stable_and_switching_mappings(self):
+        task = construct(
+            {
+                "scenario": "scene2_single_scrambled_stability",
+                "test_type": "choice",
+                "level": 3,
+            }
+        )
+        self.assertEqual(task["task_mode"], "multi_arm")
+        self.assertEqual(task["num_arms"], 2)
+        self.assertEqual(task["target_behavior"]["behavior"], "mapped_direct")
+        self.assertEqual(
+            task["distractors"][0]["behavior"],
+            "mapped_cycle_switch",
+        )
+        self.assertEqual(task["distractors"][0]["mapping_pattern"], [0, 0, 0, 1])
+
 
 if __name__ == "__main__":
     unittest.main()

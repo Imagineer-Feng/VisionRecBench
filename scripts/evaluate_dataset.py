@@ -16,6 +16,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BASE_DIR))
 
 from source.difficulty import DIFFICULTY_LEVELS  # noqa: E402
+from source.preprocess import TEST_TYPES  # noqa: E402
 from source.multimodal import (  # noqa: E402
     build_model_content,
     build_prompts,
@@ -55,6 +56,14 @@ def parse_args():
         default=BASE_DIR / "results" / "offline",
     )
     parser.add_argument("--scenario", nargs="+", default=None)
+    parser.add_argument(
+        "--test-type",
+        dest="test_types",
+        nargs="+",
+        choices=TEST_TYPES,
+        default=None,
+        help="Optional test-type filter; default evaluates both formats.",
+    )
     parser.add_argument(
         "--max-image-history",
         type=int,
@@ -152,6 +161,7 @@ def result_path(output_root, metadata, model, record):
         Path(output_root)
         / dataset_dir
         / f"difficulty_level{record['difficulty_level']}"
+        / record["test_type"]
         / model_dir
         / record["scenario"]
         / f"{record['episode_id']}.json"
@@ -172,7 +182,7 @@ def evaluate_one(
     )
     correct = identification.choice == int(record["answer_index"])
     return {
-        "schema_version": "2.0",
+        "schema_version": DATASET_SCHEMA_VERSION,
         "dataset_name": metadata["dataset_name"],
         "dataset_content_sha256": metadata["content_sha256"],
         "episode_id": record["episode_id"],
@@ -184,6 +194,7 @@ def evaluate_one(
         "api_endpoint": sanitized_api_endpoint(model),
         "difficulty_level": int(record["difficulty_level"]),
         "difficulty_name": record["difficulty_name"],
+        "test_type": record["test_type"],
         "nuisance_pair_id": record.get("nuisance_pair_id"),
         "nuisance_signature": record.get("nuisance_signature"),
         "environment_template": record.get("environment_template"),
@@ -235,6 +246,12 @@ def main():
             row for row in rows
             if int(row["difficulty_level"]) in selected_levels
         ]
+    if args.test_types:
+        selected_test_types = set(args.test_types)
+        rows = [
+            row for row in rows
+            if row.get("test_type") in selected_test_types
+        ]
     if args.limit is not None:
         rows = rows[: args.limit]
 
@@ -271,6 +288,7 @@ def main():
                 "episode_signature": record["episode_signature"],
                 "model": args.model,
                 "difficulty_level": level,
+                "test_type": record["test_type"],
                 "nuisance_pair_id": record.get("nuisance_pair_id"),
                 "nuisance_signature": record.get("nuisance_signature"),
                 "environment_template": record.get("environment_template"),
@@ -290,22 +308,25 @@ def main():
                     f"{output_path}"
                 )
             print(
-                f"[{current}/{total}] skipping {record['episode_id']} L{level}",
+                f"[{current}/{total}] skipping {record['episode_id']} "
+                f"L{level} {record['test_type']}",
                 flush=True,
             )
             outcomes["skipped"] += 1
             continue
 
         print(
-            f"[{current}/{total}] evaluating {record['episode_id']} L{level}",
+            f"[{current}/{total}] evaluating {record['episode_id']} "
+            f"L{level} {record['test_type']}",
             flush=True,
         )
         if args.model == "random":
             per_episode_seed = int.from_bytes(
                 hashlib.sha256(
-                    f"{args.random_seed}:{level}:{record['episode_id']}".encode(
-                        "utf-8"
-                    )
+                    (
+                        f"{args.random_seed}:{level}:{record['test_type']}:"
+                        f"{record['episode_id']}"
+                    ).encode("utf-8")
                 ).digest()[:8],
                 byteorder="big",
             )

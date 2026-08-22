@@ -7,8 +7,8 @@ from pathlib import Path
 from PIL import Image
 
 
-DATASET_SCHEMA_VERSION = "2.0"
-SUPPORTED_DATASET_SCHEMA_VERSIONS = {"1.0", DATASET_SCHEMA_VERSION}
+DATASET_SCHEMA_VERSION = "3.0"
+SUPPORTED_DATASET_SCHEMA_VERSIONS = {"1.0", "2.0", DATASET_SCHEMA_VERSION}
 
 
 def utc_timestamp():
@@ -109,6 +109,8 @@ def episode_summary(record, dataset_root):
     if "difficulty_level" in record:
         summary["difficulty_level"] = int(record["difficulty_level"])
         summary["difficulty_name"] = record["difficulty_name"]
+    if "test_type" in record:
+        summary["test_type"] = record["test_type"]
     if "nuisance_pair_id" in record:
         summary["nuisance_pair_id"] = record["nuisance_pair_id"]
         summary["nuisance_signature"] = record["nuisance_signature"]
@@ -127,6 +129,7 @@ def rebuild_manifest(dataset_root):
         key=lambda item: (
             item["scenario"],
             int(item.get("difficulty_level", 0)),
+            item.get("test_type", ""),
             item["episode_index"],
         )
     )
@@ -237,11 +240,26 @@ def validate_dataset(dataset_root, verify_checksums=True):
 
         scenario = record.get("scenario")
         difficulty_level = record.get("difficulty_level")
+        test_type = record.get("test_type")
         if metadata.get("schema_version") == DATASET_SCHEMA_VERSION:
             if difficulty_level not in metadata.get("difficulty_levels", []):
                 errors.append(f"{episode_id}: invalid difficulty level")
             if not record.get("difficulty_name"):
                 errors.append(f"{episode_id}: missing difficulty name")
+            if test_type not in metadata.get("test_types", []):
+                errors.append(f"{episode_id}: invalid test type")
+            if record.get("task", {}).get("test_type") != test_type:
+                errors.append(f"{episode_id}: task/record test type mismatch")
+            task_mode = record.get("task", {}).get("task_mode")
+            num_arms = record.get("task", {}).get("num_arms")
+            expected_mode = (
+                "multi_arm" if test_type == "choice" else "single_binary"
+            )
+            expected_arms = 2 if test_type == "choice" else 1
+            if task_mode != expected_mode or num_arms != expected_arms:
+                errors.append(
+                    f"{episode_id}: test type does not match task mode/arm count"
+                )
         paired_nuisance = bool(metadata.get("paired_nuisance", False))
         nuisance_pair_id = record.get("nuisance_pair_id")
         nuisance_signature = record.get("nuisance_signature")
@@ -267,11 +285,12 @@ def validate_dataset(dataset_root, verify_checksums=True):
                 errors.append(
                     f"{episode_id}: task/record environment template mismatch"
                 )
-        group = (
-            scenario
-            if difficulty_level is None
-            else f"{scenario}/level{difficulty_level}"
-        )
+        group_parts = [str(scenario)]
+        if difficulty_level is not None:
+            group_parts.append(f"level{difficulty_level}")
+        if test_type is not None:
+            group_parts.append(str(test_type))
+        group = "/".join(group_parts)
         counts[group] += 1
         task_modes[group] = record.get("task", {}).get("task_mode")
         answer_positions[group][record.get("answer_index")] += 1
@@ -288,6 +307,11 @@ def validate_dataset(dataset_root, verify_checksums=True):
             behavior_positions[group][
                 (candidate.get("behavior"), candidate.get("index"))
             ] += 1
+            sampled_mapping = candidate.get("sampled_mapping_option")
+            if sampled_mapping is not None:
+                mapping_options[group][
+                    (candidate.get("role"), sampled_mapping)
+                ] += 1
         if environment_template is not None:
             environment_template_counts[group][environment_template] += 1
 
@@ -306,6 +330,8 @@ def validate_dataset(dataset_root, verify_checksums=True):
         ]
         if difficulty_level is not None:
             summary_fields.extend(("difficulty_level", "difficulty_name"))
+        if test_type is not None:
+            summary_fields.append("test_type")
         if nuisance_pair_id is not None:
             summary_fields.extend(("nuisance_pair_id", "nuisance_signature"))
         if environment_template is not None:
@@ -364,8 +390,15 @@ def validate_dataset(dataset_root, verify_checksums=True):
         if paired_nuisance and nuisance_pair_id and nuisance_signature:
             cross_level_key = (scenario, nuisance_pair_id)
             nuisance_pair_signatures[cross_level_key].add(nuisance_signature)
-            within_level_key = (scenario, difficulty_level, nuisance_pair_id)
-            nuisance_pair_ids_by_group[(scenario, difficulty_level)].add(
+            within_level_key = (
+                scenario,
+                difficulty_level,
+                test_type,
+                nuisance_pair_id,
+            )
+            nuisance_pair_ids_by_group[
+                (scenario, difficulty_level, test_type)
+            ].add(
                 nuisance_pair_id
             )
             if environment_template is not None:
@@ -380,51 +413,57 @@ def validate_dataset(dataset_root, verify_checksums=True):
 
     configured_count = int(
         metadata.get(
-            "episodes_per_scene_per_level",
-            metadata.get("episodes_per_scene", 0),
+            "episodes_per_scene_per_level_test_type",
+            metadata.get(
+                "episodes_per_scene_per_level",
+                metadata.get("episodes_per_scene", 0),
+            ),
         )
     )
     configured_levels = metadata.get("difficulty_levels") or [None]
+    configured_test_types = metadata.get("test_types") or [None]
     for scenario in metadata.get("scenarios", []):
         for difficulty_level in configured_levels:
-            group = (
-                scenario
-                if difficulty_level is None
-                else f"{scenario}/level{difficulty_level}"
-            )
-            if counts[group] != configured_count:
-                errors.append(
-                    f"{group}: expected {configured_count} episodes, "
-                    f"found {counts[group]}"
-                )
-            values = list(answer_positions[group].values())
-            if values and max(values) - min(values) > 1:
-                errors.append(f"{group}: answer positions are not balanced")
-            if task_modes.get(group) == "single_binary":
-                values = list(target_presence[group].values())
-                if len(values) != 2 or max(values) - min(values) > 1:
-                    errors.append(f"{group}: binary conditions are not balanced")
-            elif task_modes.get(group) == "multi_arm":
-                values = list(target_positions[group].values())
-                if values and max(values) - min(values) > 1:
-                    errors.append(f"{group}: target positions are not balanced")
-
-            values = list(mapping_options[group].values())
-            if values and max(values) - min(values) > 1:
-                errors.append(f"{group}: mapping conditions are not balanced")
-            values = list(behavior_positions[group].values())
-            if task_modes.get(group) == "multi_arm" and values:
-                if max(values) - min(values) > 1:
-                    errors.append(f"{group}: behavior positions are not balanced")
-            configured_templates = metadata.get("environment_templates", [])
-            if configured_templates:
-                template_counts = environment_template_counts[group]
-                if set(template_counts) != set(configured_templates) or len(
-                    set(template_counts.values())
-                ) != 1:
+            for test_type in configured_test_types:
+                group_parts = [str(scenario)]
+                if difficulty_level is not None:
+                    group_parts.append(f"level{difficulty_level}")
+                if test_type is not None:
+                    group_parts.append(str(test_type))
+                group = "/".join(group_parts)
+                if counts[group] != configured_count:
                     errors.append(
-                        f"{group}: environment templates are not balanced"
+                        f"{group}: expected {configured_count} episodes, "
+                        f"found {counts[group]}"
                     )
+                values = list(answer_positions[group].values())
+                if values and max(values) - min(values) > 1:
+                    errors.append(f"{group}: answer positions are not balanced")
+                if task_modes.get(group) == "single_binary":
+                    values = list(target_presence[group].values())
+                    if len(values) != 2 or max(values) - min(values) > 1:
+                        errors.append(f"{group}: binary conditions are not balanced")
+                elif task_modes.get(group) == "multi_arm":
+                    values = list(target_positions[group].values())
+                    if values and max(values) - min(values) > 1:
+                        errors.append(f"{group}: target positions are not balanced")
+
+                values = list(mapping_options[group].values())
+                if values and max(values) - min(values) > 1:
+                    errors.append(f"{group}: mapping conditions are not balanced")
+                values = list(behavior_positions[group].values())
+                if task_modes.get(group) == "multi_arm" and values:
+                    if max(values) - min(values) > 1:
+                        errors.append(f"{group}: behavior positions are not balanced")
+                configured_templates = metadata.get("environment_templates", [])
+                if configured_templates:
+                    template_counts = environment_template_counts[group]
+                    if set(template_counts) != set(configured_templates) or len(
+                        set(template_counts.values())
+                    ) != 1:
+                        errors.append(
+                            f"{group}: environment templates are not balanced"
+                        )
 
     if metadata.get("paired_nuisance", False):
         expected_pair_size = int(metadata.get("nuisance_pair_size", 0))
@@ -434,43 +473,45 @@ def validate_dataset(dataset_root, verify_checksums=True):
             if len(signatures_for_pair) != 1:
                 errors.append(
                     f"{key[0]}/{key[1]}: nuisance signature differs across "
-                    "conditions or difficulty levels"
+                    "conditions, difficulty levels, or test types"
                 )
         for key, templates_for_pair in nuisance_pair_templates.items():
             if len(templates_for_pair) != 1:
                 errors.append(
                     f"{key[0]}/{key[1]}: environment template differs "
-                    "across conditions or difficulty levels"
+                    "across conditions, difficulty levels, or test types"
                 )
         for key, condition_counts in nuisance_pair_conditions.items():
             member_count = sum(condition_counts.values())
             if member_count != expected_pair_size:
                 errors.append(
-                    f"{key[0]}/level{key[1]}/{key[2]}: expected "
+                    f"{key[0]}/level{key[1]}/{key[2]}/{key[3]}: expected "
                     f"{expected_pair_size} paired episodes, found {member_count}"
                 )
             if len(condition_counts) != expected_pair_size or any(
                 count != 1 for count in condition_counts.values()
             ):
                 errors.append(
-                    f"{key[0]}/level{key[1]}/{key[2]}: paired conditions "
+                    f"{key[0]}/level{key[1]}/{key[2]}/{key[3]}: paired conditions "
                     "are not one-to-one"
                 )
         configured_levels = metadata.get("difficulty_levels", [])
+        configured_test_types = metadata.get("test_types") or [None]
         for scenario in metadata.get("scenarios", []):
             expected_pair_ids = None
             for difficulty_level in configured_levels:
-                pair_ids = nuisance_pair_ids_by_group[
-                    (scenario, difficulty_level)
-                ]
-                if expected_pair_ids is None:
-                    expected_pair_ids = pair_ids
-                elif pair_ids != expected_pair_ids:
-                    errors.append(
-                        f"{scenario}: nuisance pair IDs differ across "
-                        "difficulty levels"
-                    )
-                    break
+                for test_type in configured_test_types:
+                    pair_ids = nuisance_pair_ids_by_group[
+                        (scenario, difficulty_level, test_type)
+                    ]
+                    if expected_pair_ids is None:
+                        expected_pair_ids = pair_ids
+                    elif pair_ids != expected_pair_ids:
+                        errors.append(
+                            f"{scenario}: nuisance pair IDs differ across "
+                            "difficulty levels or test types"
+                        )
+                        break
 
     current_hash = dataset_content_hash(rows)
     stored_hash = metadata.get("content_sha256")

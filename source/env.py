@@ -177,6 +177,7 @@ class VisionRecBenchEnv:
             self.task_dict.get("distractors", []),
             seed=self.task_dict.get("seed", 0),
             target_index=self.task_dict.get("target_index"),
+            target_behavior=self.task_dict.get("target_behavior"),
         )
         self.target_index = next(
             item["index"] for item in self.role_assignments if item["role"] == "target"
@@ -644,6 +645,9 @@ class VisionRecBenchEnv:
                 "role": arm["role"],
                 "behavior": arm["behavior"]["behavior"],
                 "desc": arm["behavior"].get("desc", ""),
+                "sampled_mapping_option": arm["behavior"].get(
+                    "sampled_mapping_option"
+                ),
             }
             for arm in self.arms
         ]
@@ -848,7 +852,12 @@ class VisionRecBenchEnv:
                 arm["command_schedule"] = build_mismatched_command_schedule(
                     self.command_library,
                     episode_steps=self.episode_steps,
-                    seed=int(self.task_dict.get("seed", 0)),
+                    seed=int(
+                        self.task_dict.get(
+                            "behavior_seed",
+                            self.task_dict.get("seed", 0),
+                        )
+                    ),
                     mismatch_count=mismatch_count,
                 )
             else:

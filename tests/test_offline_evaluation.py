@@ -63,6 +63,7 @@ class OfflineEvaluationTest(unittest.TestCase):
                 "seed": 0,
                 "difficulty_level": 1,
                 "difficulty_name": "easy",
+                "test_type": "judgment",
                 "task": task,
                 "control_labels": get_control_labels(task),
                 "visual_history_mode": "motion_diffs",

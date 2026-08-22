@@ -38,6 +38,7 @@ from source.episode_sampling import (  # noqa: E402
     STANDARD_SCENARIOS,
     build_episode_task,
 )
+from source.preprocess import TEST_TYPES  # noqa: E402
 from source.render_config import RENDER_CONFIG  # noqa: E402
 
 
@@ -51,11 +52,11 @@ def parse_args():
     parser.add_argument(
         "--output",
         type=Path,
-        default=BASE_DIR / "datasets" / "visionrecbench_robust_v3",
+        default=BASE_DIR / "datasets" / "visionrecbench_factorial_v4",
     )
     parser.add_argument(
         "--dataset-name",
-        default="visionrecbench_robust_v3",
+        default="visionrecbench_factorial_v4",
     )
     parser.add_argument(
         "--scenario",
@@ -74,10 +75,18 @@ def parse_args():
         help="Physical difficulty levels to generate; default generates all levels.",
     )
     parser.add_argument(
+        "--test-type",
+        dest="test_types",
+        nargs="+",
+        choices=TEST_TYPES,
+        default=list(TEST_TYPES),
+        help="Test formats to generate; default generates choice and judgment.",
+    )
+    parser.add_argument(
         "--episodes-per-scene",
         type=int,
         default=48,
-        help="Episodes per scene per difficulty level.",
+        help="Episodes per scene, difficulty level, and test type.",
     )
     parser.add_argument("--base-seed", type=int, default=0)
     parser.add_argument("--profile", default=SAMPLING_PROFILE)
@@ -114,16 +123,18 @@ def sampling_plan(args):
     tasks = []
     for level in args.levels:
         for scenario in args.scenarios:
-            for episode_index in range(args.episodes_per_scene):
-                tasks.append(
-                    build_episode_task(
-                        scenario,
-                        episode_index,
-                        level=level,
-                        base_seed=args.base_seed,
-                        profile=args.profile,
+            for test_type in args.test_types:
+                for episode_index in range(args.episodes_per_scene):
+                    tasks.append(
+                        build_episode_task(
+                            scenario,
+                            episode_index,
+                            level=level,
+                            test_type=test_type,
+                            base_seed=args.base_seed,
+                            profile=args.profile,
+                        )
                     )
-                )
     signatures = [task["episode_signature"] for task in tasks]
     duplicate_count = len(signatures) - len(set(signatures))
     if duplicate_count:
@@ -148,10 +159,16 @@ def sampling_plan(args):
             raise RuntimeError(
                 f"Environment template differs within nuisance pair {pair_id}."
             )
-        group = (task["name"], task["difficulty_level"], pair_id)
+        group = (
+            task["name"],
+            task["difficulty_level"],
+            task["test_type"],
+            pair_id,
+        )
         pair_members[group] += 1
         pair_ids_by_group.setdefault(
-            (task["name"], task["difficulty_level"]), set()
+            (task["name"], task["difficulty_level"], task["test_type"]),
+            set(),
         ).add(pair_id)
     invalid_pair_sizes = [
         group for group, count in pair_members.items()
@@ -165,44 +182,53 @@ def sampling_plan(args):
     for scenario in args.scenarios:
         expected_pair_ids = None
         for level in args.levels:
-            pair_ids = pair_ids_by_group[(scenario, level)]
-            if expected_pair_ids is None:
-                expected_pair_ids = pair_ids
-            elif pair_ids != expected_pair_ids:
-                raise RuntimeError(
-                    f"Nuisance pair IDs differ across levels for {scenario}."
+            for test_type in args.test_types:
+                pair_ids = pair_ids_by_group[(scenario, level, test_type)]
+                if expected_pair_ids is None:
+                    expected_pair_ids = pair_ids
+                elif pair_ids != expected_pair_ids:
+                    raise RuntimeError(
+                        "Nuisance pair IDs differ across levels or test "
+                        f"types for {scenario}."
+                    )
+                template_counts = Counter(
+                    pair_templates[pair_id] for pair_id in pair_ids
                 )
-            template_counts = Counter(
-                pair_templates[pair_id] for pair_id in pair_ids
-            )
-            if set(template_counts) != set(ENVIRONMENT_TEMPLATE_IDS) or len(
-                set(template_counts.values())
-            ) != 1:
-                raise RuntimeError(
-                    f"Environment templates are not balanced for "
-                    f"{scenario}/level{level}: {dict(template_counts)}"
-                )
+                if set(template_counts) != set(ENVIRONMENT_TEMPLATE_IDS) or len(
+                    set(template_counts.values())
+                ) != 1:
+                    raise RuntimeError(
+                        f"Environment templates are not balanced for "
+                        f"{scenario}/level{level}/{test_type}: "
+                        f"{dict(template_counts)}"
+                    )
     return tasks
 
 
 def plan_report(tasks):
     scenario_level_counts = Counter(
-        (task["name"], task["difficulty_level"])
+        (task["name"], task["difficulty_level"], task["test_type"])
         for task in tasks
     )
     pair_reuse_counts = Counter(
         Counter(task["nuisance_pair_id"] for task in tasks).values()
     )
     environment_template_counts = Counter(
-        (task["name"], task["difficulty_level"], task["environment"]["id"])
+        (
+            task["name"],
+            task["difficulty_level"],
+            task["test_type"],
+            task["environment"]["id"],
+        )
         for task in tasks
     )
     return {
         "profile": SAMPLING_PROFILE,
         "episode_count": len(tasks),
         "scenario_level_counts": {
-            f"{scenario}/level{level}": count
-            for (scenario, level), count in scenario_level_counts.items()
+            f"{scenario}/level{level}/{test_type}": count
+            for (scenario, level, test_type), count
+            in scenario_level_counts.items()
         },
         "unique_signatures": len(
             {task["episode_signature"] for task in tasks}
@@ -215,8 +241,8 @@ def plan_report(tasks):
             for reuse_count, pair_count in sorted(pair_reuse_counts.items())
         },
         "environment_template_counts": {
-            f"{scenario}/level{level}/{template_id}": count
-            for (scenario, level, template_id), count
+            f"{scenario}/level{level}/{test_type}/{template_id}": count
+            for (scenario, level, test_type, template_id), count
             in sorted(environment_template_counts.items())
         },
         "first_episode_ids": [task["episode_id"] for task in tasks[:3]],
@@ -241,6 +267,7 @@ def metadata_for(args):
         BASE_DIR / "source" / "episode_sampling.py",
         BASE_DIR / "source" / "env.py",
         BASE_DIR / "source" / "multimodal.py",
+        BASE_DIR / "source" / "prompts.py",
         BASE_DIR / "source" / "preprocess.py",
         BASE_DIR / "source" / "task_logic.py",
         BASE_DIR / "source" / "render_config.py",
@@ -257,7 +284,8 @@ def metadata_for(args):
         "sampling_profile": args.profile,
         "scenarios": list(args.scenarios),
         "difficulty_levels": list(args.levels),
-        "episodes_per_scene_per_level": int(args.episodes_per_scene),
+        "test_types": list(args.test_types),
+        "episodes_per_scene_per_level_test_type": int(args.episodes_per_scene),
         "paired_nuisance": True,
         "nuisance_pair_size": NUISANCE_PAIR_SIZE,
         "environment_templates": list(ENVIRONMENT_TEMPLATE_IDS),
@@ -290,7 +318,8 @@ def prepare_dataset_root(args):
             "sampling_profile",
             "scenarios",
             "difficulty_levels",
-            "episodes_per_scene_per_level",
+            "test_types",
+            "episodes_per_scene_per_level_test_type",
             "paired_nuisance",
             "nuisance_pair_size",
             "environment_templates",
@@ -385,6 +414,7 @@ def render_episode(env, task, dataset_root):
         "seed": int(task["seed"]),
         "difficulty_level": int(task["difficulty_level"]),
         "difficulty_name": task["difficulty_name"],
+        "test_type": task["test_type"],
         "nuisance_pair_id": task["nuisance_pair_id"],
         "nuisance_signature": task["nuisance_signature"],
         "environment_template": task["environment"]["id"],

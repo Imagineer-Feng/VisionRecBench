@@ -6,7 +6,7 @@ import numpy as np
 
 from source.difficulty import DIFFICULTY_LEVELS
 from source.environment_config import sample_environment
-from source.preprocess import construct
+from source.preprocess import TEST_TYPES, construct
 from source.task_logic import (
     build_mismatched_command_schedule,
     build_multi_arm_role_assignment,
@@ -21,7 +21,7 @@ STANDARD_SCENARIOS = (
     "scene3_dyad_causal_identification",
 )
 
-SAMPLING_PROFILE = "paired_lab_v3"
+SAMPLING_PROFILE = "factorial_test_type_v4"
 NUISANCE_PAIR_SIZE = 2
 
 
@@ -30,9 +30,10 @@ def _round_list(values, digits=6):
 
 
 def _episode_rng(base_seed, scene, episode_index):
-    # Consecutive condition episodes and all difficulty levels deliberately use
-    # the same random stream. Any future nuisance/environment variation must be
-    # sampled from this RNG so it remains condition- and level-independent.
+    # Consecutive condition episodes, all difficulty levels, and both test
+    # types deliberately use the same random stream. Any future nuisance or
+    # environment variation must be sampled here so it remains independent of
+    # condition, level, and test type.
     nuisance_pair_index = int(episode_index) // NUISANCE_PAIR_SIZE
     seed_sequence = np.random.SeedSequence(
         [int(base_seed), int(scene), nuisance_pair_index]
@@ -189,7 +190,7 @@ def _condition_descriptor(task):
             schedule = build_mismatched_command_schedule(
                 [item["delta"] for item in task["command_sequence"]],
                 episode_steps=task["episode_steps"],
-                seed=task["seed"],
+                seed=task.get("behavior_seed", task["seed"]),
                 mismatch_count=mismatch_count,
             )
             descriptor["applied_schedule"] = [
@@ -197,14 +198,29 @@ def _condition_descriptor(task):
             ]
         return descriptor
 
-    return {
-        "role_assignments": build_multi_arm_role_assignment(
-            task["num_arms"],
-            task.get("distractors", []),
-            seed=task["seed"],
-            target_index=task.get("target_index"),
-        )
-    }
+    assignments = build_multi_arm_role_assignment(
+        task["num_arms"],
+        task.get("distractors", []),
+        seed=task["seed"],
+        target_index=task.get("target_index"),
+        target_behavior=task.get("target_behavior"),
+    )
+    for assignment in assignments:
+        behavior = assignment["behavior"]
+        if behavior["behavior"] in {"sequence_derangement", "sequence_mismatch"}:
+            mismatch_count = int(
+                behavior.get("mismatch_count", task["episode_steps"])
+            )
+            schedule = build_mismatched_command_schedule(
+                [item["delta"] for item in task["command_sequence"]],
+                episode_steps=task["episode_steps"],
+                seed=task.get("behavior_seed", task["seed"]),
+                mismatch_count=mismatch_count,
+            )
+            assignment["applied_schedule"] = [
+                _round_list(command) for command in schedule
+            ]
+    return {"role_assignments": assignments}
 
 
 def canonical_episode_signature(task):
@@ -212,6 +228,14 @@ def canonical_episode_signature(task):
     signature_payload = {
         "scenario": task["name"],
         "difficulty_level": task["difficulty_level"],
+        "test_type": task["test_type"],
+        "task_mode": task["task_mode"],
+        "num_arms": task["num_arms"],
+        "layout_spacing": task.get("layout_spacing"),
+        "floor_width": task.get("floor_width"),
+        "floor_depth": task.get("floor_depth"),
+        "visual_history_mode": task.get("visual_history_mode"),
+        "annotate_candidates": task.get("annotate_candidates"),
         "condition": _condition_descriptor(task),
         "command_sequence": task["command_sequence"],
         "arm_initial_joint_positions": task["arm"].get(
@@ -236,6 +260,7 @@ def build_episode_task(
     scenario,
     episode_index,
     level=1,
+    test_type="judgment",
     base_seed=0,
     profile=SAMPLING_PROFILE,
 ):
@@ -245,8 +270,16 @@ def build_episode_task(
         raise ValueError("episode_index must be non-negative.")
     if int(level) not in DIFFICULTY_LEVELS:
         raise ValueError(f"Unsupported difficulty level: {level}")
+    if test_type not in TEST_TYPES:
+        raise ValueError(f"Unsupported test type: {test_type}")
 
-    task = construct({"scenario": scenario, "level": int(level)})
+    task = construct(
+        {
+            "scenario": scenario,
+            "level": int(level),
+            "test_type": test_type,
+        }
+    )
     scene = int(task["scene"])
     nuisance_pair_index = int(episode_index) // NUISANCE_PAIR_SIZE
     nuisance_pair_id = (
@@ -255,8 +288,10 @@ def build_episode_task(
     # Keep the two condition seeds consecutive with a shared quotient for all
     # non-label sampling based on seed // 2, regardless of base_seed parity.
     episode_seed = 2 * int(base_seed) + int(episode_index)
+    behavior_seed = episode_seed // NUISANCE_PAIR_SIZE
     rng = _episode_rng(base_seed, scene, episode_index)
     task["seed"] = episode_seed
+    task["behavior_seed"] = behavior_seed
 
     environment = sample_environment(
         rng,
@@ -277,7 +312,9 @@ def build_episode_task(
         "base_seed": int(base_seed),
         "episode_index": int(episode_index),
         "episode_seed": episode_seed,
+        "behavior_seed": behavior_seed,
         "difficulty_level": int(level),
+        "test_type": test_type,
         "nuisance_pair_size": NUISANCE_PAIR_SIZE,
         "nuisance_pair_index": nuisance_pair_index,
         "nuisance_pair_id": nuisance_pair_id,
@@ -289,7 +326,8 @@ def build_episode_task(
     task["episode_variation"] = variation
     task["episode_signature"] = canonical_episode_signature(task)
     task["episode_id"] = (
-        f"{task['name']}-level{int(level)}-{int(episode_index):05d}-"
+        f"{task['name']}-{test_type}-level{int(level)}-"
+        f"{int(episode_index):05d}-"
         f"{task['episode_signature'][:12]}"
     )
     return task

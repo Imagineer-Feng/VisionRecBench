@@ -10,6 +10,7 @@ sys.path.insert(0, str(BASE_DIR))
 from source.environment_config import ENVIRONMENT_TEMPLATE_IDS  # noqa: E402
 from source.episode_sampling import STANDARD_SCENARIOS, build_episode_task  # noqa: E402
 from source.multimodal import annotate_candidates, save_rgb  # noqa: E402
+from source.preprocess import TEST_TYPES  # noqa: E402
 from source.render_config import RENDER_CONFIG  # noqa: E402
 
 
@@ -28,6 +29,7 @@ def parse_args():
         default="scene1_single_command_causality",
     )
     parser.add_argument("--level", type=int, choices=(1, 2, 3), default=1)
+    parser.add_argument("--test-type", choices=TEST_TYPES, default="choice")
     parser.add_argument("--base-seed", type=int, default=0)
     parser.add_argument("--headless", action="store_true")
     return parser.parse_args()
@@ -67,6 +69,7 @@ def main():
                 args.scenario,
                 episode_index=pair_index * 2,
                 level=args.level,
+                test_type=args.test_type,
                 base_seed=args.base_seed,
             )
             template_id = task["environment"]["id"]

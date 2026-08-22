@@ -97,6 +97,21 @@ class Scene1LogicTest(unittest.TestCase):
         self.assertEqual(self.task["visual_history_mode"], "motion_diffs")
         self.assertFalse(self.task["annotate_candidates"])
 
+    def test_choice_form_contains_direct_and_mismatched_candidates(self):
+        task = construct(
+            {
+                "scenario": "scene1_single_command_causality",
+                "test_type": "choice",
+                "level": 2,
+            }
+        )
+        self.assertEqual(task["task_mode"], "multi_arm")
+        self.assertEqual(task["num_arms"], 2)
+        self.assertEqual(task["target_behavior"]["behavior"], "direct")
+        self.assertEqual(task["distractors"][0]["behavior"], "sequence_mismatch")
+        self.assertEqual(task["distractors"][0]["mismatch_count"], 6)
+        self.assertTrue(task["annotate_candidates"])
+
     def test_prompt_is_neutral_and_has_no_fixed_option_number(self):
         prefix, suffix = build_prompts(
             list(reversed(self.task["answer_options"]))

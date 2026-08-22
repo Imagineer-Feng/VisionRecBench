@@ -4,15 +4,26 @@ VisionRecBench is an Isaac Sim benchmark for embodied visual self-recognition. I
 
 The three standard scenes are:
 
-- **Scene 1 — same-step command causality:** one arm is shown. A self arm follows the current command; a non-self arm executes a reordered version of the same eight-command multiset.
-- **Scene 2 — mapping stability:** one arm is shown under a scrambled action space. Four command cycles are observed; a self arm keeps one command-to-motion mapping, while a non-self arm changes mappings between cycles according to the selected difficulty.
-- **Scene 3 — delayed-arm identification:** two arms are shown. One is the self arm and follows the current command; the other executes the same command stream after a difficulty-dependent delay. Self/delayed roles are balanced across left and right positions.
+- **Scene 1 — same-step command causality:** a self arm follows the current command; a non-self arm executes a reordered version of the same eight-command multiset.
+- **Scene 2 — mapping stability:** four command cycles are observed under a scrambled action space. A self arm keeps one command-to-motion mapping, while a non-self arm changes mappings between cycles according to the selected difficulty.
+- **Scene 3 — delayed causality:** a self arm follows the current command; a non-self arm executes the same command stream after a difficulty-dependent delay.
 
 Each episode produces one scored answer after the complete motion trace.
 
+## Test types
+
+`test_type` is a third experimental variable alongside scene and difficulty:
+
+| Test type | Visible arms | Balanced answer condition |
+|---|---:|---|
+| `choice` | 2 | choose the self arm; self is equally often left and right |
+| `judgment` | 1 | judge whether the visible arm is self; self and non-self are equally frequent |
+
+Every scene supports both formats from the same underlying self/non-self behavior pair. Thus Scene 1 choice compares direct and mismatch arms, Scene 2 choice compares stable and changing mappings, and Scene 3 judgment samples direct and delayed arms individually. Both formats use the same temporal evidence representation and the same universal prompt template; only the answer options express whether the episode asks for a candidate choice or a yes/no judgment.
+
 ## Difficulty levels
 
-`--level` now selects **physical task difficulty**, not prompt detail. The same prompt template is used for every scene and level.
+`--level` selects **physical task difficulty**, not prompt detail. The same prompt template is used for every scene, level, and test type.
 
 | Level | Scene 1: wrong same-step actions | Scene 2: non-self cycle mappings | Scene 3: delayed arm |
 |---|---:|---|---:|
@@ -37,7 +48,7 @@ VisionRecBench/
     environment_config.py   # balanced procedural laboratory templates
     episode_sampling.py     # balanced deterministic episode sampling
     multimodal.py           # shared image evidence and model input assembly
-    preprocess.py           # scenario/config loading
+    preprocess.py           # scenario loading and test-type construction
     prompts.py              # single universal prompt template
     render_config.py        # fixed rendering settings
     task_logic.py           # command and mapping transformations
@@ -77,7 +88,7 @@ This check does not launch Isaac Sim:
 python3 scripts/generate_dataset.py --plan-only
 ```
 
-With the defaults it plans 432 unique episodes: 48 episodes × 3 scenes × 3 difficulty levels. `--episodes-per-scene` is the count **per scene per level** and must be divisible by 12 to preserve condition, answer-position, mapping, and candidate-role balance.
+With the defaults it plans 864 unique episodes: 48 episodes × 3 scenes × 3 difficulty levels × 2 test types. `--episodes-per-scene` is the count **per scene, level, and test type** and must be divisible by 12 to preserve condition, answer-position, mapping, candidate-role, and environment-template balance.
 
 To inspect a subset:
 
@@ -86,6 +97,7 @@ python3 scripts/generate_dataset.py \
   --plan-only \
   --scenario scene1_single_command_causality \
   --level 1 2 3 \
+  --test-type choice judgment \
   --episodes-per-scene 12
 ```
 
@@ -95,33 +107,36 @@ Run generation with Isaac Sim's Python:
 
 ```shell
 $ISAACSIM_ROOT/python.sh scripts/generate_dataset.py \
-  --output datasets/visionrecbench_robust_v3 \
-  --dataset-name visionrecbench_robust_v3 \
+  --output datasets/visionrecbench_factorial_v4 \
+  --dataset-name visionrecbench_factorial_v4 \
   --episodes-per-scene 48 \
   --level 1 2 3 \
+  --test-type choice judgment \
   --base-seed 0 \
   --headless
 ```
 
-The `paired_lab_v3` sampler uses strict two-episode nuisance pairs. For every scene, indices `2k` and `2k+1` share the exact command order and amplitude, initial pose, camera, lighting, floor, background, and procedural laboratory environment. Scene 1/2 change only between self and non-self behavior; Scene 3 changes only which left/right candidate is self. The same pair is also reused at all selected difficulty levels.
+The `factorial_test_type_v4` sampler uses strict two-episode nuisance pairs. For every scene and test type, indices `2k` and `2k+1` share the exact command order and amplitude, initial pose, camera, lighting, floor, background, and procedural laboratory environment. Judgment pairs change only between self and non-self behavior; choice pairs change only which left/right candidate is self. The same nuisance pair is reused across all selected difficulty levels and both test types.
 
-The visual context rotates evenly among three procedural templates: `robotics_lab`, `assembly_cell`, and `inspection_bay`. They add walls, floor markings, structural beams, workbenches, monitors, cabinets, shelving, bins, safety fencing, crates, calibration panels, and inspection consoles without placing answer-correlated objects near a candidate. These first-version props are static visual geometry with no collision or independent motion, keeping background richness separate from causal-task difficulty. Because every valid episode count is divisible by 12, every template appears equally often in every scene, difficulty, and answer condition.
+The visual context rotates evenly among three procedural templates: `robotics_lab`, `assembly_cell`, and `inspection_bay`. They add walls, floor markings, structural beams, workbenches, monitors, cabinets, shelving, bins, safety fencing, crates, calibration panels, and inspection consoles without placing answer-correlated objects near a candidate. These first-version props are static visual geometry with no collision or independent motion, keeping background richness separate from causal-task difficulty. Because every valid episode count is divisible by 12, every template appears equally often in every scene, difficulty, test type, and answer condition.
 
 Render one initial-observation preview for each template before generating the full dataset:
 
 ```shell
-$ISAACSIM_ROOT/python.sh scripts/render_environment_previews.py --headless
+$ISAACSIM_ROOT/python.sh scripts/render_environment_previews.py \
+  --test-type choice \
+  --headless
 ```
 
-Each record stores a `nuisance_pair_id`, a content-derived `nuisance_signature`, and its `environment_template`. The deterministic plan and dataset validator reject incomplete pairs, unequal signatures, unbalanced templates, or pair sets that differ across levels. With the default plan there are 72 nuisance pairs, each reused by two conditions across three levels, giving six episodes per pair. Generation also writes image checksums, `manifest.jsonl`, and `metadata.json`. Use `--resume` to continue an interrupted generation with matching configuration and source hashes.
+Each record stores its `test_type`, a `nuisance_pair_id`, a content-derived `nuisance_signature`, and its `environment_template`. The deterministic plan and dataset validator reject incomplete pairs, unequal signatures, unbalanced templates, or pair sets that differ across levels or test types. With the default plan there are 72 nuisance pairs, each reused by two conditions across three levels and two test types, giving 12 episodes per pair. Generation also writes image checksums, `manifest.jsonl`, and `metadata.json`. Use `--resume` to continue an interrupted generation with matching configuration and source hashes.
 
 ## 3. Validate the dataset
 
 ```shell
-python3 scripts/validate_dataset.py datasets/visionrecbench_robust_v3
+python3 scripts/validate_dataset.py datasets/visionrecbench_factorial_v4
 ```
 
-Validation checks record structure, images, checksums, episode uniqueness, per-scene/per-level balance, equal environment-template frequency, and strict nuisance-pair equality across conditions and levels. `--skip-checksums` provides a faster structural check.
+Validation checks record structure, images, checksums, episode uniqueness, per-scene/per-level/per-test-type balance, equal environment-template frequency, and strict nuisance-pair equality across conditions, levels, and test types. `--skip-checksums` provides a faster structural check.
 
 ## 4. Evaluate offline
 
@@ -129,18 +144,19 @@ No Isaac Sim process is started during evaluation:
 
 ```shell
 python3 scripts/evaluate_dataset.py \
-  --dataset datasets/visionrecbench_robust_v3 \
+  --dataset datasets/visionrecbench_factorial_v4 \
   --model gpt-4o \
   --level 1 2 3 \
+  --test-type choice judgment \
   --resume
 ```
 
-Omit `--level` to evaluate all physical difficulty levels. Use `--scenario` to select scenes, `--limit` for a smoke test, or `--model random` for an API-free baseline.
+Omit `--level` or `--test-type` to evaluate all values of that variable. Use `--scenario` to select scenes, `--limit` for a smoke test, or `--model random` for an API-free baseline.
 
 Results are written to:
 
 ```text
-results/offline/<dataset>/difficulty_level<level>/<model>/<scenario>/<episode>.json
+results/offline/<dataset>/difficulty_level<level>/<test_type>/<model>/<scenario>/<episode>.json
 ```
 
 Each result records the frozen dataset hash, exact multimodal-input hash, episode signature, nuisance-pair identity, difficulty, raw response, parsed choice, label, and correctness. The evaluator requires both the new difficulty-level schema and strict nuisance-pair metadata; legacy or unpaired datasets remain readable by the validator but are not silently mixed into new experiments.
@@ -149,15 +165,15 @@ Each result records the frozen dataset hash, exact multimodal-input hash, episod
 
 ```shell
 python3 scripts/summarize_offline_results.py \
-  results/offline/visionrecbench_robust_v3 \
-  --output results/offline/visionrecbench_robust_v3/summary.json
+  results/offline/visionrecbench_factorial_v4 \
+  --output results/offline/visionrecbench_factorial_v4/summary.json
 ```
 
-The summary reports accuracy and invalid-response rate per model, scene, and difficulty. Binary scenes also report self/non-self recall, balanced accuracy, and self-attribution rate; the two-arm scene reports position recall and prediction distributions. When complete paired results are available, confidence intervals use nuisance-pair cluster bootstrap rather than incorrectly treating the two matched episodes as independent.
+The summary reports accuracy and invalid-response rate per model, scene, difficulty, and test type. Judgment groups also report self/non-self recall, balanced accuracy, and self-attribution rate; choice groups report position recall and prediction distributions. When complete paired results are available, confidence intervals use nuisance-pair cluster bootstrap rather than incorrectly treating the two matched episodes as independent.
 
 ## Reproducibility and legacy data
 
 - Render quality is fixed in `source/render_config.py`.
-- Prompt text is fixed in `source/prompts.py` and is shared across all nine scene/level combinations.
-- Existing legacy datasets and results are not modified. In particular, `visionrecbench_robust_v1` represents the old experimental design and should not be combined with `visionrecbench_robust_v3`.
+- Prompt text is fixed in `source/prompts.py` and is shared across all 18 scene/level/test-type combinations.
+- Existing legacy datasets and results are not modified. In particular, `visionrecbench_robust_v1` and `visionrecbench_robust_v3` represent earlier experimental designs and should not be combined with `visionrecbench_factorial_v4`.
 - A change to scene physics, sampling, evidence construction, or prompts should produce a newly named frozen dataset rather than overwriting an existing one.

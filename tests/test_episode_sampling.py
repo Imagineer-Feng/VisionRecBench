@@ -10,8 +10,9 @@ from source.episode_sampling import (
     STANDARD_SCENARIOS,
     build_episode_task,
 )
-from source.preprocess import construct
+from source.preprocess import TEST_TYPES, construct
 from source.task_logic import (
+    build_mismatched_command_schedule,
     build_multi_arm_role_assignment,
     configure_binary_answers,
     materialize_mapping_behavior,
@@ -42,118 +43,142 @@ class EpisodeSamplingTest(unittest.TestCase):
     def test_robust_split_has_unique_episode_signatures(self):
         for scenario in STANDARD_SCENARIOS:
             tasks = [
-                build_episode_task(scenario, index, level=level, base_seed=0)
+                build_episode_task(
+                    scenario,
+                    index,
+                    level=level,
+                    test_type=test_type,
+                    base_seed=0,
+                )
                 for level in DIFFICULTY_LEVELS
+                for test_type in TEST_TYPES
                 for index in range(48)
             ]
             signatures = {task["episode_signature"] for task in tasks}
-            self.assertEqual(len(signatures), 144)
+            self.assertEqual(len(signatures), 288)
 
     def test_difficulty_levels_share_nuisance_variations(self):
         for scenario in STANDARD_SCENARIOS:
             tasks = [
-                build_episode_task(scenario, 7, level=level, base_seed=0)
+                build_episode_task(
+                    scenario,
+                    7,
+                    level=level,
+                    test_type=test_type,
+                    base_seed=0,
+                )
                 for level in DIFFICULTY_LEVELS
+                for test_type in TEST_TYPES
             ]
             self.assertEqual(len({task["nuisance_signature"] for task in tasks}), 1)
             self.assertEqual(len({task["nuisance_pair_id"] for task in tasks}), 1)
             for key in self.NUISANCE_FIELDS:
-                self.assertEqual(tasks[0][key], tasks[1][key])
-                self.assertEqual(tasks[1][key], tasks[2][key])
+                for task in tasks[1:]:
+                    self.assertEqual(tasks[0][key], task[key])
             self.assertEqual(
-                tasks[0]["arm"]["initial_joint_positions"],
-                tasks[1]["arm"]["initial_joint_positions"],
-            )
-            self.assertEqual(
-                tasks[1]["arm"]["initial_joint_positions"],
-                tasks[2]["arm"]["initial_joint_positions"],
+                {tuple(task["arm"]["initial_joint_positions"]) for task in tasks},
+                {tuple(tasks[0]["arm"]["initial_joint_positions"])},
             )
 
     def test_opposite_conditions_share_exact_nuisance_pair(self):
         for scenario in STANDARD_SCENARIOS:
             for level in DIFFICULTY_LEVELS:
-                first = build_episode_task(
-                    scenario, 10, level=level, base_seed=19
-                )
-                second = build_episode_task(
-                    scenario, 11, level=level, base_seed=19
-                )
-                self.assertEqual(first["nuisance_pair_id"], second["nuisance_pair_id"])
-                self.assertEqual(
-                    first["nuisance_signature"], second["nuisance_signature"]
-                )
-                self.assertEqual(
-                    first["episode_variation"]["episode_seed"] // 2,
-                    second["episode_variation"]["episode_seed"] // 2,
-                )
-                for key in self.NUISANCE_FIELDS:
-                    self.assertEqual(first[key], second[key])
-                self.assertEqual(
-                    first["arm"]["initial_joint_positions"],
-                    second["arm"]["initial_joint_positions"],
-                )
-                first_neutral = copy.deepcopy(first)
-                second_neutral = copy.deepcopy(second)
-                for key in (
-                    "seed",
-                    "episode_variation",
-                    "nuisance_pair_id",
-                    "nuisance_signature",
-                    "episode_signature",
-                    "episode_id",
-                ):
-                    first_neutral.pop(key)
-                    second_neutral.pop(key)
-                self.assertEqual(first_neutral, second_neutral)
+                for test_type in TEST_TYPES:
+                    first = build_episode_task(
+                        scenario,
+                        10,
+                        level=level,
+                        test_type=test_type,
+                        base_seed=19,
+                    )
+                    second = build_episode_task(
+                        scenario,
+                        11,
+                        level=level,
+                        test_type=test_type,
+                        base_seed=19,
+                    )
+                    self.assertEqual(
+                        first["nuisance_pair_id"],
+                        second["nuisance_pair_id"],
+                    )
+                    self.assertEqual(
+                        first["nuisance_signature"],
+                        second["nuisance_signature"],
+                    )
+                    self.assertEqual(
+                        first["episode_variation"]["episode_seed"] // 2,
+                        second["episode_variation"]["episode_seed"] // 2,
+                    )
+                    for key in self.NUISANCE_FIELDS:
+                        self.assertEqual(first[key], second[key])
+                    self.assertEqual(
+                        first["arm"]["initial_joint_positions"],
+                        second["arm"]["initial_joint_positions"],
+                    )
+                    first_neutral = copy.deepcopy(first)
+                    second_neutral = copy.deepcopy(second)
+                    for key in (
+                        "seed",
+                        "episode_variation",
+                        "nuisance_pair_id",
+                        "nuisance_signature",
+                        "episode_signature",
+                        "episode_id",
+                    ):
+                        first_neutral.pop(key)
+                        second_neutral.pop(key)
+                    self.assertEqual(first_neutral, second_neutral)
 
-                if first["task_mode"] == "single_binary":
-                    target_presence = set()
-                    answer_orders = []
-                    sampled_mapping_options = []
-                    for task in (first, second):
-                        options = task["visible_arm_behavior_options"]
-                        option_index = select_behavior_option(
-                            options,
-                            seed=task["seed"],
-                            strategy=task["behavior_selection"],
-                        )
-                        target_presence.add(
-                            bool(options[option_index]["target_present"])
-                        )
-                        answer_order, _ = configure_binary_answers(
-                            task["answer_options"],
-                            bool(options[option_index]["target_present"]),
-                            task["seed"],
-                            shuffle=True,
-                        )
-                        answer_orders.append(answer_order)
-                        behavior = materialize_mapping_behavior(
-                            options[option_index]["behavior"],
-                            seed=task["seed"],
-                            behavior_option_count=len(options),
-                        )
-                        if "sampled_mapping_option" in behavior:
-                            sampled_mapping_options.append(
-                                behavior["sampled_mapping_option"]
+                    if first["task_mode"] == "single_binary":
+                        target_presence = set()
+                        answer_orders = []
+                        sampled_mapping_options = []
+                        for task in (first, second):
+                            options = task["visible_arm_behavior_options"]
+                            option_index = select_behavior_option(
+                                options,
+                                seed=task["seed"],
+                                strategy=task["behavior_selection"],
                             )
-                    self.assertEqual(target_presence, {False, True})
-                    self.assertEqual(answer_orders[0], answer_orders[1])
-                    if sampled_mapping_options:
-                        self.assertEqual(len(set(sampled_mapping_options)), 1)
-                else:
-                    target_positions = {
-                        next(
-                            assignment["index"]
-                            for assignment in build_multi_arm_role_assignment(
-                                task["num_arms"],
-                                task["distractors"],
+                            target_presence.add(
+                                bool(options[option_index]["target_present"])
+                            )
+                            answer_order, _ = configure_binary_answers(
+                                task["answer_options"],
+                                bool(options[option_index]["target_present"]),
                                 task["seed"],
+                                shuffle=True,
                             )
-                            if assignment["role"] == "target"
-                        )
-                        for task in (first, second)
-                    }
-                    self.assertEqual(target_positions, {1, 2})
+                            answer_orders.append(answer_order)
+                            behavior = materialize_mapping_behavior(
+                                options[option_index]["behavior"],
+                                seed=task["seed"],
+                                behavior_option_count=len(options),
+                            )
+                            if "sampled_mapping_option" in behavior:
+                                sampled_mapping_options.append(
+                                    behavior["sampled_mapping_option"]
+                                )
+                        self.assertEqual(target_presence, {False, True})
+                        self.assertEqual(answer_orders[0], answer_orders[1])
+                        if sampled_mapping_options:
+                            self.assertEqual(len(set(sampled_mapping_options)), 1)
+                    else:
+                        target_positions = {
+                            next(
+                                assignment["index"]
+                                for assignment in build_multi_arm_role_assignment(
+                                    task["num_arms"],
+                                    task["distractors"],
+                                    task["seed"],
+                                    target_behavior=task.get("target_behavior"),
+                                )
+                                if assignment["role"] == "target"
+                            )
+                            for task in (first, second)
+                        }
+                        self.assertEqual(target_positions, {1, 2})
 
     def test_different_pairs_use_different_nuisance_variations(self):
         for scenario in STANDARD_SCENARIOS:
@@ -169,40 +194,45 @@ class EpisodeSamplingTest(unittest.TestCase):
     def test_environment_templates_are_balanced_within_every_condition(self):
         for scenario in STANDARD_SCENARIOS:
             for level in DIFFICULTY_LEVELS:
-                counts = Counter()
-                for index in range(48):
-                    task = build_episode_task(
-                        scenario,
-                        index,
-                        level=level,
-                        base_seed=19,
-                    )
-                    if task["task_mode"] == "single_binary":
-                        options = task["visible_arm_behavior_options"]
-                        selected = select_behavior_option(
-                            options,
-                            task["seed"],
-                            task["behavior_selection"],
+                for test_type in TEST_TYPES:
+                    counts = Counter()
+                    for index in range(48):
+                        task = build_episode_task(
+                            scenario,
+                            index,
+                            level=level,
+                            test_type=test_type,
+                            base_seed=19,
                         )
-                        condition = bool(options[selected]["target_present"])
-                    else:
-                        assignments = build_multi_arm_role_assignment(
-                            task["num_arms"],
-                            task["distractors"],
-                            task["seed"],
-                        )
-                        condition = next(
-                            assignment["index"]
-                            for assignment in assignments
-                            if assignment["role"] == "target"
-                        )
-                    counts[(condition, task["environment"]["id"])] += 1
+                        if task["task_mode"] == "single_binary":
+                            options = task["visible_arm_behavior_options"]
+                            selected = select_behavior_option(
+                                options,
+                                task["seed"],
+                                task["behavior_selection"],
+                            )
+                            condition = bool(
+                                options[selected]["target_present"]
+                            )
+                        else:
+                            assignments = build_multi_arm_role_assignment(
+                                task["num_arms"],
+                                task["distractors"],
+                                task["seed"],
+                                target_behavior=task.get("target_behavior"),
+                            )
+                            condition = next(
+                                assignment["index"]
+                                for assignment in assignments
+                                if assignment["role"] == "target"
+                            )
+                        counts[(condition, task["environment"]["id"])] += 1
 
-                self.assertEqual(
-                    {template for _, template in counts},
-                    set(ENVIRONMENT_TEMPLATE_IDS),
-                )
-                self.assertEqual(set(counts.values()), {8})
+                    self.assertEqual(
+                        {template for _, template in counts},
+                        set(ENVIRONMENT_TEMPLATE_IDS),
+                    )
+                    self.assertEqual(set(counts.values()), {8})
 
     def test_sampling_changes_commands_pose_camera_and_lighting(self):
         scenario = "scene3_dyad_causal_identification"
@@ -235,13 +265,17 @@ class EpisodeSamplingTest(unittest.TestCase):
                 self.assertTrue(np.all(initial <= limits[:, 1]))
 
     def test_binary_conditions_and_answer_positions_are_balanced(self):
-        for scenario in STANDARD_SCENARIOS[:2]:
+        for scenario in STANDARD_SCENARIOS:
             for level in DIFFICULTY_LEVELS:
                 combinations = Counter()
                 mapping_options = Counter()
                 for index in range(48):
                     task = build_episode_task(
-                        scenario, index, level=level, base_seed=0
+                        scenario,
+                        index,
+                        level=level,
+                        test_type="judgment",
+                        base_seed=0,
                     )
                     options = task["visible_arm_behavior_options"]
                     selected_index = select_behavior_option(
@@ -274,32 +308,96 @@ class EpisodeSamplingTest(unittest.TestCase):
                 if mapping_options:
                     self.assertEqual(set(mapping_options.values()), {6})
 
-    def test_scene3_target_and_distractor_roles_are_balanced(self):
+    def test_choice_target_and_distractor_roles_are_balanced(self):
         positions = Counter()
         behavior_positions = Counter()
-        for level in DIFFICULTY_LEVELS:
-            for index in range(48):
-                task = build_episode_task(
-                    "scene3_dyad_causal_identification",
-                    index,
-                    level=level,
-                    base_seed=0,
-                )
-                assignments = build_multi_arm_role_assignment(
-                    task["num_arms"],
-                    task["distractors"],
-                    task["seed"],
-                )
-                for assignment in assignments:
-                    behavior = assignment["behavior"]["behavior"]
-                    behavior_positions[
-                        (level, behavior, assignment["index"])
-                    ] += 1
-                    if assignment["role"] == "target":
-                        positions[(level, assignment["index"])] += 1
+        for scenario in STANDARD_SCENARIOS:
+            for level in DIFFICULTY_LEVELS:
+                for index in range(48):
+                    task = build_episode_task(
+                        scenario,
+                        index,
+                        level=level,
+                        test_type="choice",
+                        base_seed=0,
+                    )
+                    assignments = build_multi_arm_role_assignment(
+                        task["num_arms"],
+                        task["distractors"],
+                        task["seed"],
+                        target_behavior=task.get("target_behavior"),
+                    )
+                    for assignment in assignments:
+                        behavior = assignment["behavior"]["behavior"]
+                        behavior_positions[
+                            (scenario, level, behavior, assignment["index"])
+                        ] += 1
+                        if assignment["role"] == "target":
+                            positions[(scenario, level, assignment["index"])] += 1
 
         self.assertEqual(set(positions.values()), {24})
         self.assertEqual(set(behavior_positions.values()), {24})
+
+    def test_every_scene_exposes_both_test_types_from_same_behavior_pair(self):
+        expected_behaviors = {
+            "scene1_single_command_causality": ("direct", "sequence_mismatch"),
+            "scene2_single_scrambled_stability": (
+                "mapped_direct",
+                "mapped_cycle_switch",
+            ),
+            "scene3_dyad_causal_identification": ("direct", "delay"),
+        }
+        for scenario, expected in expected_behaviors.items():
+            choice = build_episode_task(scenario, 0, test_type="choice")
+            judgment = build_episode_task(scenario, 0, test_type="judgment")
+            self.assertEqual(choice["task_mode"], "multi_arm")
+            self.assertEqual(choice["num_arms"], 2)
+            self.assertEqual(judgment["task_mode"], "single_binary")
+            self.assertEqual(judgment["num_arms"], 1)
+            self.assertEqual(
+                choice["visual_history_mode"],
+                judgment["visual_history_mode"],
+            )
+            self.assertEqual(choice["behavior_pair"], judgment["behavior_pair"])
+            self.assertEqual(
+                (
+                    choice["behavior_pair"]["self"]["behavior"],
+                    choice["behavior_pair"]["nonself"]["behavior"],
+                ),
+                expected,
+            )
+            self.assertEqual(
+                choice["nuisance_signature"],
+                judgment["nuisance_signature"],
+            )
+
+    def test_scene1_choice_role_swap_reuses_exact_nonself_schedule(self):
+        first = build_episode_task(
+            "scene1_single_command_causality",
+            10,
+            level=2,
+            test_type="choice",
+            base_seed=19,
+        )
+        second = build_episode_task(
+            "scene1_single_command_causality",
+            11,
+            level=2,
+            test_type="choice",
+            base_seed=19,
+        )
+        self.assertEqual(first["behavior_seed"], second["behavior_seed"])
+        schedules = []
+        for task in (first, second):
+            schedules.append(
+                build_mismatched_command_schedule(
+                    [item["delta"] for item in task["command_sequence"]],
+                    episode_steps=task["episode_steps"],
+                    seed=task["behavior_seed"],
+                    mismatch_count=task["distractors"][0]["mismatch_count"],
+                )
+            )
+        np.testing.assert_array_equal(schedules[0], schedules[1])
 
     def test_scene2_preserves_one_repeatable_four_command_cycle(self):
         task = build_episode_task(

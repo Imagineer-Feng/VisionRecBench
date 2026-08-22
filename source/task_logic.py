@@ -138,7 +138,13 @@ def build_deranged_command_schedule(command_library, episode_steps, seed):
     )
 
 
-def build_multi_arm_role_assignment(num_arms, distractors, seed, target_index=None):
+def build_multi_arm_role_assignment(
+    num_arms,
+    distractors,
+    seed,
+    target_index=None,
+    target_behavior=None,
+):
     num_arms = int(num_arms)
     if num_arms < 2:
         raise ValueError("A multi-arm assignment requires at least two arms.")
@@ -163,22 +169,32 @@ def build_multi_arm_role_assignment(num_arms, distractors, seed, target_index=No
     order_index = (seed // num_arms) % len(distractor_orders)
     distractor_order = distractor_orders[order_index]
 
-    direct_behavior = {
-        "behavior": "direct",
-        "desc": "the target arm that follows the motor command directly",
-    }
+    if target_behavior is None:
+        target_behavior = {
+            "behavior": "direct",
+            "desc": "the target arm that follows the motor command directly",
+        }
+    target_behavior = materialize_mapping_behavior(
+        target_behavior,
+        seed=seed,
+        behavior_option_count=num_arms,
+    )
     assignments = [None] * num_arms
     assignments[target_zero_index] = {
         "index": target_zero_index + 1,
         "role": "target",
-        "behavior": copy.deepcopy(direct_behavior),
+        "behavior": copy.deepcopy(target_behavior),
     }
 
     for position, distractor_index in zip(remaining_positions, distractor_order):
         assignments[position] = {
             "index": position + 1,
             "role": "distractor",
-            "behavior": copy.deepcopy(distractors[distractor_index]),
+            "behavior": materialize_mapping_behavior(
+                distractors[distractor_index],
+                seed=seed,
+                behavior_option_count=num_arms,
+            ),
         }
 
     return assignments

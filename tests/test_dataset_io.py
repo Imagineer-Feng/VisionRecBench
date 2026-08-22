@@ -30,7 +30,7 @@ class DatasetIOTest(unittest.TestCase):
         Image.fromarray(np.full((16, 20, 3), 60, dtype=np.uint8)).save(evidence_path)
 
         record = {
-            "schema_version": DATASET_SCHEMA_VERSION,
+            "schema_version": "2.0",
             "episode_id": episode_id,
             "episode_index": 0,
             "episode_signature": "deadbeef",
@@ -57,7 +57,7 @@ class DatasetIOTest(unittest.TestCase):
         atomic_write_json(episode_dir / "episode.json", record)
         rows = rebuild_manifest(root)
         metadata = {
-            "schema_version": DATASET_SCHEMA_VERSION,
+            "schema_version": "2.0",
             "dataset_name": "test_dataset",
             "scenarios": ["test_scenario"],
             "difficulty_levels": [1],
@@ -92,6 +92,8 @@ class DatasetIOTest(unittest.TestCase):
             task = {
                 "episode_steps": 1,
                 "task_mode": "single_binary",
+                "test_type": "judgment",
+                "num_arms": 1,
                 "nuisance_pair_id": pair_id,
                 "nuisance_signature": signature,
                 "environment": {"id": "robotics_lab"},
@@ -106,6 +108,7 @@ class DatasetIOTest(unittest.TestCase):
                 "seed": episode_index,
                 "difficulty_level": 1,
                 "difficulty_name": "easy",
+                "test_type": "judgment",
                 "nuisance_pair_id": pair_id,
                 "nuisance_signature": signature,
                 "environment_template": "robotics_lab",
@@ -134,7 +137,8 @@ class DatasetIOTest(unittest.TestCase):
             "dataset_name": "paired_test_dataset",
             "scenarios": ["test_scenario"],
             "difficulty_levels": [1],
-            "episodes_per_scene_per_level": 2,
+            "test_types": ["judgment"],
+            "episodes_per_scene_per_level_test_type": 2,
             "paired_nuisance": True,
             "nuisance_pair_size": 2,
             "environment_templates": ["robotics_lab"],
@@ -205,6 +209,28 @@ class DatasetIOTest(unittest.TestCase):
             self.assertTrue(
                 any(
                     "nuisance signature differs" in error
+                    for error in report["errors"]
+                )
+            )
+
+    def test_test_type_must_match_task_mode_and_arm_count(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            record_paths = self._build_paired_dataset(root)
+            record = load_json(record_paths[0])
+            record["task"]["num_arms"] = 2
+            atomic_write_json(record_paths[0], record)
+            rows = rebuild_manifest(root)
+            metadata_path = root / "metadata.json"
+            metadata = load_json(metadata_path)
+            metadata["content_sha256"] = dataset_content_hash(rows)
+            atomic_write_json(metadata_path, metadata)
+
+            report = validate_dataset(root, verify_checksums=False)
+            self.assertFalse(report["valid"])
+            self.assertTrue(
+                any(
+                    "test type does not match" in error
                     for error in report["errors"]
                 )
             )

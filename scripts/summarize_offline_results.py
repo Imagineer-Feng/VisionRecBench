@@ -62,12 +62,13 @@ def main():
             row["model"],
             int(row["difficulty_level"]),
             row["scenario"],
+            row.get("test_type", "legacy"),
         )
         groups[key].append(row)
 
     summaries = []
     for group_index, (key, group_rows) in enumerate(sorted(groups.items())):
-        dataset_name, dataset_hash, model, level, scenario = key
+        dataset_name, dataset_hash, model, level, scenario, test_type = key
         metrics = summarize_result_group(
             group_rows,
             bootstrap_samples=args.bootstrap_samples,
@@ -80,6 +81,7 @@ def main():
                 "model": model,
                 "difficulty_level": level,
                 "scenario": scenario,
+                "test_type": test_type,
                 **metrics,
             }
         )
@@ -91,6 +93,7 @@ def main():
             summary["dataset_content_sha256"],
             summary["model"],
             summary["difficulty_level"],
+            summary["test_type"],
         )
         primary_score = summary.get(
             "balanced_accuracy",
@@ -103,6 +106,7 @@ def main():
             "dataset_content_sha256": key[1],
             "model": key[2],
             "difficulty_level": key[3],
+            "test_type": key[4],
             "scene_macro_score": round(sum(values) / len(values), 6),
             "scenes": len(values),
         }

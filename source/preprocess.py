@@ -27,6 +27,8 @@ SCENARIO_ALIASES = {
     "scene3_triad_delay_invert": "scene3_dyad_causal_identification",
 }
 
+TEST_TYPES = ("choice", "judgment")
+
 
 def _resolve_named_block(repo_name, block):
     if isinstance(block, str):
@@ -88,6 +90,110 @@ def preprocess(task_dict):
     return task_dict
 
 
+def _behavior_pair(task_dict, scenario_name):
+    options = task_dict.get("visible_arm_behavior_options")
+    if options:
+        self_options = [item for item in options if item.get("target_present") is True]
+        nonself_options = [
+            item for item in options if item.get("target_present") is False
+        ]
+        if len(self_options) != 1 or len(nonself_options) != 1:
+            raise ValueError(
+                f"Scenario {scenario_name} must define exactly one self and "
+                "one non-self behavior option."
+            )
+        return (
+            copy.deepcopy(self_options[0]["behavior"]),
+            copy.deepcopy(nonself_options[0]["behavior"]),
+        )
+
+    distractors = task_dict.get("distractors", [])
+    if len(distractors) == 1:
+        return (
+            copy.deepcopy(task_dict.get("target_behavior", _direct_behavior())),
+            copy.deepcopy(distractors[0]),
+        )
+
+    raise ValueError(
+        f"Scenario {scenario_name} does not define one reusable self/non-self "
+        "behavior pair."
+    )
+
+
+def _apply_test_type(task_dict, test_type, scenario_name):
+    if test_type not in TEST_TYPES:
+        raise ValueError(
+            f"test_type must be one of {TEST_TYPES}, got {test_type!r}"
+        )
+
+    self_behavior, nonself_behavior = _behavior_pair(task_dict, scenario_name)
+    task_dict["test_type"] = test_type
+    task_dict["behavior_pair"] = {
+        "self": copy.deepcopy(self_behavior),
+        "nonself": copy.deepcopy(nonself_behavior),
+    }
+    # A common canvas prevents the laboratory geometry from changing merely
+    # because one or two arms are rendered. Arm count remains the intended
+    # visual manipulation between judgment and choice tests.
+    task_dict["floor_width"] = max(
+        4.8,
+        float(task_dict.get("floor_width", 4.8)),
+    )
+
+    for key in (
+        "target_present",
+        "visible_arm_behavior",
+        "visible_arm_behavior_options",
+        "target_behavior",
+        "distractors",
+        "target_index",
+    ):
+        task_dict.pop(key, None)
+
+    if test_type == "judgment":
+        task_dict.update(
+            {
+                "task_mode": "single_binary",
+                "num_arms": 1,
+                "behavior_selection": "seed_modulo",
+                "visible_arm_behavior_options": [
+                    {
+                        "target_present": True,
+                        "behavior": copy.deepcopy(self_behavior),
+                    },
+                    {
+                        "target_present": False,
+                        "behavior": copy.deepcopy(nonself_behavior),
+                    },
+                ],
+                "answer_options": [
+                    "yes, the visible arm is myself",
+                    "no, the visible arm is not myself",
+                ],
+                "shuffle_answer_options": True,
+                "annotate_candidates": False,
+                "visual_history_mode": "candidate_motion_panels",
+            }
+        )
+        return task_dict
+
+    task_dict.update(
+        {
+            "task_mode": "multi_arm",
+            "num_arms": 2,
+            "target_index": None,
+            "target_behavior": copy.deepcopy(self_behavior),
+            "distractors": [copy.deepcopy(nonself_behavior)],
+            "role_assignment_strategy": "seed_stratified",
+            "annotate_candidates": True,
+            "visual_history_mode": "candidate_motion_panels",
+        }
+    )
+    task_dict.pop("answer_options", None)
+    task_dict.pop("shuffle_answer_options", None)
+    return task_dict
+
+
 def construct(id_dict):
     requested_scenario_name = id_dict["scenario"]
     scenario_name = SCENARIO_ALIASES.get(
@@ -104,6 +210,21 @@ def construct(id_dict):
 
     task_dict = preprocess(task_dict)
     task_dict = apply_difficulty_level(task_dict, id_dict.get("level", 1))
+
+    requested_test_type = id_dict.get("test_type")
+    if requested_test_type is None:
+        requested_test_type = (
+            "judgment"
+            if task_dict.get("task_mode") == "single_binary"
+            else "choice"
+        )
+        task_dict["test_type"] = requested_test_type
+    else:
+        task_dict = _apply_test_type(
+            task_dict,
+            requested_test_type,
+            scenario_name,
+        )
 
     num_arms = int(task_dict["num_arms"])
     task_mode = task_dict.get("task_mode", "multi_arm")
