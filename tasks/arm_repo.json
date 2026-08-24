@@ -1,41 +1,20 @@
 {
-    "procedural_2link_arm": {
-        "root": "procedural",
-        "desc": "a visually identical two-link industrial robotic arm with shoulder and elbow joints",
-        "link_lengths": [0.62, 0.52],
-        "link_thickness": 0.08,
-        "base_size": [0.24, 0.24, 0.16],
-        "wrist_size": [0.13, 0.13, 0.13],
-        "initial_joints_deg": [12.0, -32.0],
-        "joint_limits_deg": [[-55.0, 60.0], [-80.0, 75.0]],
-        "command_step_deg": 8.0,
-        "base_color": [0.17, 0.17, 0.17],
-        "link_color": [0.86, 0.74, 0.22],
-        "joint_color": [0.08, 0.10, 0.12],
-        "wrist_color": [0.95, 0.95, 0.95]
-    },
-    "procedural_blue_arm": {
-        "root": "procedural",
-        "desc": "a visually identical two-link laboratory robotic arm with shoulder and elbow joints",
-        "link_lengths": [0.60, 0.50],
-        "link_thickness": 0.075,
-        "base_size": [0.24, 0.24, 0.16],
-        "wrist_size": [0.12, 0.12, 0.12],
-        "initial_joints_deg": [8.0, -28.0],
-        "joint_limits_deg": [[-55.0, 60.0], [-80.0, 75.0]],
-        "command_step_deg": 7.5,
-        "base_color": [0.16, 0.16, 0.18],
-        "link_color": [0.20, 0.46, 0.80],
-        "joint_color": [0.06, 0.07, 0.09],
-        "wrist_color": [0.90, 0.93, 0.96]
-    },
     "panda_arm": {
-        "root": "panda",
+        "id": "panda_arm",
+        "root": "articulation",
         "asset_path": "isaac://Isaac/Robots/Franka/franka_alt_fingers.usd",
-        "desc": "a Franka Panda robotic arm loaded from the Isaac Sim robot asset library with base, shoulder, elbow, and wrist control axes",
-        "link_lengths": [0.62, 0.52],
-        "base_size": [0.24, 0.24, 0.16],
-        "wrist_size": [0.13, 0.13, 0.13],
+        "desc": "a Franka Panda collaborative robotic arm loaded from the Isaac Sim asset library",
+        "joint_names": [
+            "panda_joint1",
+            "panda_joint2",
+            "panda_joint3",
+            "panda_joint4",
+            "panda_joint5",
+            "panda_joint6",
+            "panda_joint7",
+            "panda_finger_joint1",
+            "panda_finger_joint2"
+        ],
         "initial_joint_positions": [0.0, -0.55, 0.0, -2.35, 0.0, 1.9, 0.75, 0.035, 0.035],
         "joint_limits": [
             [-2.8973, 2.8973],
@@ -50,6 +29,61 @@
         ],
         "command_step": 0.12,
         "control_joints": ["panda_joint1", "panda_joint2", "panda_joint4", "panda_joint6"],
-        "control_labels": ["base_yaw", "shoulder", "elbow", "wrist"]
+        "control_labels": ["base_yaw", "shoulder", "elbow", "wrist"],
+        "orientation": [1.0, 0.0, 0.0, 0.0]
+    },
+    "ur5_arm": {
+        "id": "ur5_arm",
+        "root": "articulation",
+        "asset_path": "isaac://Isaac/Robots/UniversalRobots/ur5/ur5.usd",
+        "desc": "a Universal Robots UR5 industrial collaborative arm loaded from the Isaac Sim asset library",
+        "joint_names": [
+            "shoulder_pan_joint",
+            "shoulder_lift_joint",
+            "elbow_joint",
+            "wrist_1_joint",
+            "wrist_2_joint",
+            "wrist_3_joint"
+        ],
+        "initial_joint_positions": [0.0, -1.0, 0.9, 0.0, 0.0, 0.0],
+        "joint_limits": [
+            [-6.283185, 6.283185],
+            [-6.283185, 6.283185],
+            [-3.141593, 3.141593],
+            [-6.283185, 6.283185],
+            [-6.283185, 6.283185],
+            [-6.283185, 6.283185]
+        ],
+        "command_step": 0.12,
+        "control_joints": ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint"],
+        "control_labels": ["base_yaw", "shoulder", "elbow", "wrist"],
+        "orientation": [1.0, 0.0, 0.0, 0.0]
+    },
+    "cobotta_pro_900_arm": {
+        "id": "cobotta_pro_900_arm",
+        "root": "articulation",
+        "asset_path": "isaac://Isaac/Robots/Denso/cobotta_pro_900.usd",
+        "desc": "a Denso Cobotta Pro 900 six-axis collaborative arm loaded from the Isaac Sim asset library",
+        "joint_names": [
+            "joint_1",
+            "joint_2",
+            "joint_3",
+            "joint_4",
+            "joint_5",
+            "joint_6"
+        ],
+        "initial_joint_positions": [0.0, 0.3, 1.2, 0.0, 0.0, 0.0],
+        "joint_limits": [
+            [-4.712389, 4.712389],
+            [-2.617994, 2.617994],
+            [-2.617994, 2.617994],
+            [-4.712389, 4.712389],
+            [-2.617994, 2.617994],
+            [-6.283185, 6.283185]
+        ],
+        "command_step": 0.12,
+        "control_joints": ["joint_1", "joint_2", "joint_3", "joint_5"],
+        "control_labels": ["base_yaw", "shoulder", "elbow", "wrist"],
+        "orientation": [1.0, 0.0, 0.0, 0.0]
     }
 }

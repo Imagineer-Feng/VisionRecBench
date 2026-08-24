@@ -7,8 +7,13 @@ from pathlib import Path
 from PIL import Image
 
 
-DATASET_SCHEMA_VERSION = "3.0"
-SUPPORTED_DATASET_SCHEMA_VERSIONS = {"1.0", "2.0", DATASET_SCHEMA_VERSION}
+DATASET_SCHEMA_VERSION = "4.0"
+SUPPORTED_DATASET_SCHEMA_VERSIONS = {
+    "1.0",
+    "2.0",
+    "3.0",
+    DATASET_SCHEMA_VERSION,
+}
 
 
 def utc_timestamp():
@@ -116,6 +121,10 @@ def episode_summary(record, dataset_root):
         summary["nuisance_signature"] = record["nuisance_signature"]
     if "environment_template" in record:
         summary["environment_template"] = record["environment_template"]
+    if "arm_type" in record:
+        summary["arm_type"] = record["arm_type"]
+    if "camera_view" in record:
+        summary["camera_view"] = record["camera_view"]
     return summary
 
 
@@ -190,6 +199,14 @@ def validate_dataset(dataset_root, verify_checksums=True):
     rows = load_manifest(dataset_root)
     if metadata.get("schema_version") not in SUPPORTED_DATASET_SCHEMA_VERSIONS:
         errors.append("Unsupported dataset schema version.")
+    if metadata.get("schema_version") == DATASET_SCHEMA_VERSION:
+        for key in (
+            "environment_templates",
+            "arm_configurations",
+            "camera_views",
+        ):
+            if not metadata.get(key):
+                errors.append(f"metadata is missing configured {key}")
 
     identifiers = [row.get("episode_id") for row in rows]
     signatures = [row.get("episode_signature") for row in rows]
@@ -215,7 +232,12 @@ def validate_dataset(dataset_root, verify_checksums=True):
     nuisance_pair_conditions = defaultdict(Counter)
     nuisance_pair_ids_by_group = defaultdict(set)
     environment_template_counts = defaultdict(Counter)
+    arm_type_counts = defaultdict(Counter)
+    camera_view_counts = defaultdict(Counter)
+    nuisance_combination_counts = defaultdict(Counter)
     nuisance_pair_templates = defaultdict(set)
+    nuisance_pair_arm_types = defaultdict(set)
+    nuisance_pair_camera_views = defaultdict(set)
     task_modes = {}
     for summary in rows:
         episode_id = summary.get("episode_id", "<unknown>")
@@ -264,6 +286,8 @@ def validate_dataset(dataset_root, verify_checksums=True):
         nuisance_pair_id = record.get("nuisance_pair_id")
         nuisance_signature = record.get("nuisance_signature")
         environment_template = record.get("environment_template")
+        arm_type = record.get("arm_type")
+        camera_view = record.get("camera_view")
         if paired_nuisance:
             if not nuisance_pair_id:
                 errors.append(f"{episode_id}: missing nuisance pair ID")
@@ -285,6 +309,22 @@ def validate_dataset(dataset_root, verify_checksums=True):
                 errors.append(
                     f"{episode_id}: task/record environment template mismatch"
                 )
+        configured_arm_types = metadata.get("arm_configurations", [])
+        if configured_arm_types:
+            if arm_type not in configured_arm_types:
+                errors.append(f"{episode_id}: invalid arm type")
+            task = record.get("task", {})
+            if (
+                task.get("arm", {}).get("id") != arm_type
+                or task.get("arm_type") != arm_type
+            ):
+                errors.append(f"{episode_id}: task/record arm type mismatch")
+        configured_camera_views = metadata.get("camera_views", [])
+        if configured_camera_views:
+            if camera_view not in configured_camera_views:
+                errors.append(f"{episode_id}: invalid camera view")
+            if record.get("task", {}).get("camera_view") != camera_view:
+                errors.append(f"{episode_id}: task/record camera view mismatch")
         group_parts = [str(scenario)]
         if difficulty_level is not None:
             group_parts.append(f"level{difficulty_level}")
@@ -314,6 +354,18 @@ def validate_dataset(dataset_root, verify_checksums=True):
                 ] += 1
         if environment_template is not None:
             environment_template_counts[group][environment_template] += 1
+        if arm_type is not None:
+            arm_type_counts[group][arm_type] += 1
+        if camera_view is not None:
+            camera_view_counts[group][camera_view] += 1
+        if (
+            environment_template is not None
+            and arm_type is not None
+            and camera_view is not None
+        ):
+            nuisance_combination_counts[group][
+                (environment_template, arm_type, camera_view)
+            ] += 1
 
         if record.get("schema_version") not in SUPPORTED_DATASET_SCHEMA_VERSIONS:
             errors.append(f"{episode_id}: unsupported record schema version")
@@ -336,6 +388,10 @@ def validate_dataset(dataset_root, verify_checksums=True):
             summary_fields.extend(("nuisance_pair_id", "nuisance_signature"))
         if environment_template is not None:
             summary_fields.append("environment_template")
+        if arm_type is not None:
+            summary_fields.append("arm_type")
+        if camera_view is not None:
+            summary_fields.append("camera_view")
         mismatched_fields = [
             key for key in summary_fields if summary.get(key) != record.get(key)
         ]
@@ -405,6 +461,10 @@ def validate_dataset(dataset_root, verify_checksums=True):
                 nuisance_pair_templates[cross_level_key].add(
                     environment_template
                 )
+            if arm_type is not None:
+                nuisance_pair_arm_types[cross_level_key].add(arm_type)
+            if camera_view is not None:
+                nuisance_pair_camera_views[cross_level_key].add(camera_view)
             if record.get("task", {}).get("task_mode") == "single_binary":
                 condition = bool(record.get("target_present"))
             else:
@@ -413,15 +473,38 @@ def validate_dataset(dataset_root, verify_checksums=True):
 
     configured_count = int(
         metadata.get(
-            "episodes_per_scene_per_level_test_type",
+            "episodes_per_cell",
             metadata.get(
-                "episodes_per_scene_per_level",
-                metadata.get("episodes_per_scene", 0),
+                "episodes_per_scene_per_level_test_type",
+                metadata.get(
+                    "episodes_per_scene_per_level",
+                    metadata.get("episodes_per_scene", 0),
+                ),
             ),
         )
     )
     configured_levels = metadata.get("difficulty_levels") or [None]
     configured_test_types = metadata.get("test_types") or [None]
+    configured_templates = metadata.get("environment_templates", [])
+    configured_arm_types = metadata.get("arm_configurations", [])
+    configured_camera_views = metadata.get("camera_views", [])
+    if (
+        metadata.get("schema_version") == DATASET_SCHEMA_VERSION
+        and configured_templates
+        and configured_arm_types
+        and configured_camera_views
+    ):
+        required_multiple = (
+            2
+            * len(configured_templates)
+            * len(configured_arm_types)
+            * len(configured_camera_views)
+        )
+        if configured_count % required_multiple != 0:
+            errors.append(
+                "episodes per experimental unit must be divisible by "
+                f"{required_multiple} for strict nuisance balance"
+            )
     for scenario in metadata.get("scenarios", []):
         for difficulty_level in configured_levels:
             for test_type in configured_test_types:
@@ -464,6 +547,40 @@ def validate_dataset(dataset_root, verify_checksums=True):
                         errors.append(
                             f"{group}: environment templates are not balanced"
                         )
+                configured_arm_types = metadata.get("arm_configurations", [])
+                if configured_arm_types:
+                    arm_counts = arm_type_counts[group]
+                    if set(arm_counts) != set(configured_arm_types) or len(
+                        set(arm_counts.values())
+                    ) != 1:
+                        errors.append(f"{group}: arm types are not balanced")
+                configured_camera_views = metadata.get("camera_views", [])
+                if configured_camera_views:
+                    view_counts = camera_view_counts[group]
+                    if set(view_counts) != set(configured_camera_views) or len(
+                        set(view_counts.values())
+                    ) != 1:
+                        errors.append(f"{group}: camera views are not balanced")
+                if (
+                    configured_templates
+                    and configured_arm_types
+                    and configured_camera_views
+                ):
+                    expected_combinations = {
+                        (template, arm, view)
+                        for template in configured_templates
+                        for arm in configured_arm_types
+                        for view in configured_camera_views
+                    }
+                    combination_counts = nuisance_combination_counts[group]
+                    if (
+                        set(combination_counts) != expected_combinations
+                        or len(set(combination_counts.values())) != 1
+                    ):
+                        errors.append(
+                            f"{group}: background x arm x camera combinations "
+                            "are not balanced"
+                        )
 
     if metadata.get("paired_nuisance", False):
         expected_pair_size = int(metadata.get("nuisance_pair_size", 0))
@@ -480,6 +597,18 @@ def validate_dataset(dataset_root, verify_checksums=True):
                 errors.append(
                     f"{key[0]}/{key[1]}: environment template differs "
                     "across conditions, difficulty levels, or test types"
+                )
+        for key, arm_types_for_pair in nuisance_pair_arm_types.items():
+            if len(arm_types_for_pair) != 1:
+                errors.append(
+                    f"{key[0]}/{key[1]}: arm type differs across conditions, "
+                    "difficulty levels, or test types"
+                )
+        for key, camera_views_for_pair in nuisance_pair_camera_views.items():
+            if len(camera_views_for_pair) != 1:
+                errors.append(
+                    f"{key[0]}/{key[1]}: camera view differs across conditions, "
+                    "difficulty levels, or test types"
                 )
         for key, condition_counts in nuisance_pair_conditions.items():
             member_count = sum(condition_counts.values())
@@ -551,6 +680,18 @@ def validate_dataset(dataset_root, verify_checksums=True):
         "environment_templates": {
             group: dict(counter)
             for group, counter in environment_template_counts.items()
+        },
+        "arm_types": {
+            group: dict(counter)
+            for group, counter in arm_type_counts.items()
+        },
+        "camera_views": {
+            group: dict(counter)
+            for group, counter in camera_view_counts.items()
+        },
+        "nuisance_combinations": {
+            group: {str(key): value for key, value in counter.items()}
+            for group, counter in nuisance_combination_counts.items()
         },
         "errors": errors,
         "warnings": warnings,

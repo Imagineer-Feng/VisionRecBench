@@ -198,6 +198,8 @@ def evaluate_one(
         "nuisance_pair_id": record.get("nuisance_pair_id"),
         "nuisance_signature": record.get("nuisance_signature"),
         "environment_template": record.get("environment_template"),
+        "arm_type": record.get("arm_type"),
+        "camera_view": record.get("camera_view"),
         "random_seed": random_seed if model == "random" else None,
         "evaluated_at": utc_timestamp(),
         "input_content_sha256": content_sha256(content_items),
@@ -292,6 +294,8 @@ def main():
                 "nuisance_pair_id": record.get("nuisance_pair_id"),
                 "nuisance_signature": record.get("nuisance_signature"),
                 "environment_template": record.get("environment_template"),
+                "arm_type": record.get("arm_type"),
+                "camera_view": record.get("camera_view"),
                 "input_content_sha256": expected_input_hash,
                 "random_seed": (
                     args.random_seed if args.model == "random" else None

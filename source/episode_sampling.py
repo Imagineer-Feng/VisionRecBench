@@ -4,9 +4,10 @@ import json
 
 import numpy as np
 
+from source.camera_config import CAMERA_VIEW_IDS, apply_camera_view
 from source.difficulty import DIFFICULTY_LEVELS
-from source.environment_config import sample_environment
-from source.preprocess import TEST_TYPES, construct
+from source.environment_config import ENVIRONMENT_TEMPLATE_IDS, sample_environment
+from source.preprocess import ARM_CONFIG_IDS, TEST_TYPES, construct
 from source.task_logic import (
     build_mismatched_command_schedule,
     build_multi_arm_role_assignment,
@@ -21,8 +22,11 @@ STANDARD_SCENARIOS = (
     "scene3_dyad_causal_identification",
 )
 
-SAMPLING_PROFILE = "factorial_test_type_v4"
+SAMPLING_PROFILE = "balanced_robot_camera_v5"
 NUISANCE_PAIR_SIZE = 2
+NUISANCE_COMBINATION_COUNT = (
+    len(ENVIRONMENT_TEMPLATE_IDS) * len(ARM_CONFIG_IDS) * len(CAMERA_VIEW_IDS)
+)
 
 
 def _round_list(values, digits=6):
@@ -79,20 +83,14 @@ def _vary_commands(task, rng):
 
 def _vary_initial_pose(task, rng):
     arm = task["arm"]
-    if "initial_joint_positions" in arm:
-        key = "initial_joint_positions"
-        limits_key = "joint_limits"
-        jitter = 0.10
-    else:
-        key = "initial_joints_deg"
-        limits_key = "joint_limits_deg"
-        jitter = 4.0
-
+    key = "initial_joint_positions"
+    limits_key = "joint_limits"
+    jitter = 0.10
     initial = np.asarray(arm[key], dtype=float)
     limits = np.asarray(arm[limits_key], dtype=float)
     varied = initial.copy()
 
-    # Panda finger joints have a very small range and should remain fixed.
+    # Very narrow-range joints, such as Panda fingers, remain fixed.
     movable = np.where((limits[:, 1] - limits[:, 0]) > 0.25)[0]
     varied[movable] += rng.uniform(-jitter, jitter, size=len(movable))
     margin = np.minimum((limits[:, 1] - limits[:, 0]) * 0.08, jitter)
@@ -101,6 +99,27 @@ def _vary_initial_pose(task, rng):
     return {
         "initial_pose_key": key,
         "initial_joint_positions": copy.deepcopy(arm[key]),
+    }
+
+
+def _select_diversity_configuration(nuisance_pair_index, base_seed):
+    """Cycle exactly over background x robot x camera nuisance cells."""
+    combination_index = (
+        int(base_seed) + int(nuisance_pair_index)
+    ) % NUISANCE_COMBINATION_COUNT
+    environment_count = len(ENVIRONMENT_TEMPLATE_IDS)
+    environment_index = combination_index % environment_count
+    arm_index = (combination_index // environment_count) % len(ARM_CONFIG_IDS)
+    camera_index = combination_index // (
+        environment_count * len(ARM_CONFIG_IDS)
+    )
+    if camera_index >= len(CAMERA_VIEW_IDS):
+        raise RuntimeError("Nuisance combination schedule is inconsistent.")
+    return {
+        "combination_index": combination_index,
+        "environment_index": environment_index,
+        "arm_type": ARM_CONFIG_IDS[arm_index],
+        "camera_view": CAMERA_VIEW_IDS[camera_index],
     }
 
 
@@ -238,10 +257,11 @@ def canonical_episode_signature(task):
         "annotate_candidates": task.get("annotate_candidates"),
         "condition": _condition_descriptor(task),
         "command_sequence": task["command_sequence"],
-        "arm_initial_joint_positions": task["arm"].get(
-            "initial_joint_positions",
-            task["arm"].get("initial_joints_deg"),
-        ),
+        "arm_initial_joint_positions": task["arm"][
+            "initial_joint_positions"
+        ],
+        "arm_type": task.get("arm_type"),
+        "camera_view": task.get("camera_view"),
         "camera_eye": task.get("camera_eye"),
         "camera_target": task.get("camera_target"),
         "camera_focal": task.get("camera_focal"),
@@ -273,15 +293,20 @@ def build_episode_task(
     if test_type not in TEST_TYPES:
         raise ValueError(f"Unsupported test type: {test_type}")
 
+    nuisance_pair_index = int(episode_index) // NUISANCE_PAIR_SIZE
+    diversity = _select_diversity_configuration(
+        nuisance_pair_index,
+        base_seed,
+    )
     task = construct(
         {
             "scenario": scenario,
             "level": int(level),
             "test_type": test_type,
+            "arm": diversity["arm_type"],
         }
     )
     scene = int(task["scene"])
-    nuisance_pair_index = int(episode_index) // NUISANCE_PAIR_SIZE
     nuisance_pair_id = (
         f"{task['name']}-base{int(base_seed)}-pair{nuisance_pair_index:05d}"
     )
@@ -298,8 +323,13 @@ def build_episode_task(
         nuisance_pair_index=nuisance_pair_index,
         base_seed=base_seed,
     )
+    if environment["template_index"] != diversity["environment_index"]:
+        raise RuntimeError("Environment and diversity schedules diverged.")
     task["environment"] = copy.deepcopy(environment)
+    task["arm_type"] = diversity["arm_type"]
+    apply_camera_view(task, diversity["camera_view"])
     nuisance_variation = {
+        "diversity": copy.deepcopy(diversity),
         "commands": _vary_commands(task, rng),
         "initial_pose": _vary_initial_pose(task, rng),
         "camera": _vary_camera(task, rng),

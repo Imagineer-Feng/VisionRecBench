@@ -20,6 +20,7 @@ from source.multimodal import (  # noqa: E402
     make_motion_diff,
     save_rgb,
 )
+from source.camera_config import CAMERA_VIEW_IDS  # noqa: E402
 from source.difficulty import DIFFICULTY_LEVELS  # noqa: E402
 from source.environment_config import ENVIRONMENT_TEMPLATE_IDS  # noqa: E402
 from source.dataset_io import (  # noqa: E402
@@ -34,16 +35,18 @@ from source.dataset_io import (  # noqa: E402
 )
 from source.episode_sampling import (  # noqa: E402
     NUISANCE_PAIR_SIZE,
+    NUISANCE_COMBINATION_COUNT,
     SAMPLING_PROFILE,
     STANDARD_SCENARIOS,
     build_episode_task,
 )
-from source.preprocess import TEST_TYPES  # noqa: E402
+from source.preprocess import ARM_CONFIG_IDS, TEST_TYPES  # noqa: E402
 from source.render_config import RENDER_CONFIG  # noqa: E402
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
+        allow_abbrev=False,
         description=(
             "Generate a frozen, model-independent VisionRecBench dataset. "
             "Run this script with Isaac Sim's python.sh."
@@ -52,11 +55,11 @@ def parse_args():
     parser.add_argument(
         "--output",
         type=Path,
-        default=BASE_DIR / "datasets" / "visionrecbench_factorial_v4",
+        default=BASE_DIR / "datasets" / "visionrecbench_diverse_v5",
     )
     parser.add_argument(
         "--dataset-name",
-        default="visionrecbench_factorial_v4",
+        default="visionrecbench_diverse_v5",
     )
     parser.add_argument(
         "--scenario",
@@ -83,10 +86,14 @@ def parse_args():
         help="Test formats to generate; default generates choice and judgment.",
     )
     parser.add_argument(
-        "--episodes-per-scene",
+        "--episodes-per-cell",
+        dest="episodes_per_cell",
         type=int,
-        default=48,
-        help="Episodes per scene, difficulty level, and test type.",
+        default=144,
+        help=(
+            "Episodes in each scene x difficulty level x test type experimental cell; default "
+            "144. Values must be divisible by 36 for strict nuisance balance."
+        ),
     )
     parser.add_argument("--base-seed", type=int, default=0)
     parser.add_argument("--profile", default=SAMPLING_PROFILE)
@@ -107,12 +114,14 @@ def parse_args():
         help="Skip the final full-file checksum pass (generation still stores checksums).",
     )
     args = parser.parse_args()
-    if args.episodes_per_scene < 1:
-        parser.error("--episodes-per-scene must be positive")
-    if args.episodes_per_scene % 12 != 0:
+    if args.episodes_per_cell < 1:
+        parser.error("--episodes-per-cell must be positive")
+    required_multiple = NUISANCE_PAIR_SIZE * NUISANCE_COMBINATION_COUNT
+    if args.episodes_per_cell % required_multiple != 0:
         parser.error(
-            "--episodes-per-scene must be divisible by 12 so conditions, "
-            "answer positions, mappings, and candidate roles are balanced"
+            "--episodes-per-cell must be divisible by "
+            f"{required_multiple} so all paired background x robot x camera "
+            "combinations are exactly balanced"
         )
     if args.base_seed < 0:
         parser.error("--base-seed must be non-negative")
@@ -124,7 +133,7 @@ def sampling_plan(args):
     for level in args.levels:
         for scenario in args.scenarios:
             for test_type in args.test_types:
-                for episode_index in range(args.episodes_per_scene):
+                for episode_index in range(args.episodes_per_cell):
                     tasks.append(
                         build_episode_task(
                             scenario,
@@ -143,6 +152,8 @@ def sampling_plan(args):
         )
     pair_signatures = {}
     pair_templates = {}
+    pair_arm_types = {}
+    pair_camera_views = {}
     pair_members = Counter()
     pair_ids_by_group = {}
     for task in tasks:
@@ -158,6 +169,20 @@ def sampling_plan(args):
         if previous_template != template_id:
             raise RuntimeError(
                 f"Environment template differs within nuisance pair {pair_id}."
+            )
+        arm_type = task["arm_type"]
+        previous_arm_type = pair_arm_types.setdefault(pair_id, arm_type)
+        if previous_arm_type != arm_type:
+            raise RuntimeError(
+                f"Robot type differs within nuisance pair {pair_id}."
+            )
+        camera_view = task["camera_view"]
+        previous_camera_view = pair_camera_views.setdefault(
+            pair_id, camera_view
+        )
+        if previous_camera_view != camera_view:
+            raise RuntimeError(
+                f"Camera view differs within nuisance pair {pair_id}."
             )
         group = (
             task["name"],
@@ -191,16 +216,28 @@ def sampling_plan(args):
                         "Nuisance pair IDs differ across levels or test "
                         f"types for {scenario}."
                     )
-                template_counts = Counter(
-                    pair_templates[pair_id] for pair_id in pair_ids
+                combination_counts = Counter(
+                    (
+                        pair_templates[pair_id],
+                        pair_arm_types[pair_id],
+                        pair_camera_views[pair_id],
+                    )
+                    for pair_id in pair_ids
                 )
-                if set(template_counts) != set(ENVIRONMENT_TEMPLATE_IDS) or len(
-                    set(template_counts.values())
-                ) != 1:
+                expected_combinations = {
+                    (template, arm_type, camera_view)
+                    for template in ENVIRONMENT_TEMPLATE_IDS
+                    for arm_type in ARM_CONFIG_IDS
+                    for camera_view in CAMERA_VIEW_IDS
+                }
+                if (
+                    set(combination_counts) != expected_combinations
+                    or len(set(combination_counts.values())) != 1
+                ):
                     raise RuntimeError(
-                        f"Environment templates are not balanced for "
+                        f"Nuisance combinations are not balanced for "
                         f"{scenario}/level{level}/{test_type}: "
-                        f"{dict(template_counts)}"
+                        f"{dict(combination_counts)}"
                     )
     return tasks
 
@@ -219,6 +256,24 @@ def plan_report(tasks):
             task["difficulty_level"],
             task["test_type"],
             task["environment"]["id"],
+        )
+        for task in tasks
+    )
+    arm_type_counts = Counter(
+        (
+            task["name"],
+            task["difficulty_level"],
+            task["test_type"],
+            task["arm_type"],
+        )
+        for task in tasks
+    )
+    camera_view_counts = Counter(
+        (
+            task["name"],
+            task["difficulty_level"],
+            task["test_type"],
+            task["camera_view"],
         )
         for task in tasks
     )
@@ -245,6 +300,16 @@ def plan_report(tasks):
             for (scenario, level, test_type, template_id), count
             in sorted(environment_template_counts.items())
         },
+        "arm_type_counts": {
+            f"{scenario}/level{level}/{test_type}/{arm_type}": count
+            for (scenario, level, test_type, arm_type), count
+            in sorted(arm_type_counts.items())
+        },
+        "camera_view_counts": {
+            f"{scenario}/level{level}/{test_type}/{camera_view}": count
+            for (scenario, level, test_type, camera_view), count
+            in sorted(camera_view_counts.items())
+        },
         "first_episode_ids": [task["episode_id"] for task in tasks[:3]],
     }
 
@@ -262,6 +327,7 @@ def metadata_for(args):
     source_paths = (
         BASE_DIR / "scripts" / "generate_dataset.py",
         BASE_DIR / "source" / "dataset_io.py",
+        BASE_DIR / "source" / "camera_config.py",
         BASE_DIR / "source" / "difficulty.py",
         BASE_DIR / "source" / "environment_config.py",
         BASE_DIR / "source" / "episode_sampling.py",
@@ -285,10 +351,12 @@ def metadata_for(args):
         "scenarios": list(args.scenarios),
         "difficulty_levels": list(args.levels),
         "test_types": list(args.test_types),
-        "episodes_per_scene_per_level_test_type": int(args.episodes_per_scene),
+        "episodes_per_cell": int(args.episodes_per_cell),
         "paired_nuisance": True,
         "nuisance_pair_size": NUISANCE_PAIR_SIZE,
         "environment_templates": list(ENVIRONMENT_TEMPLATE_IDS),
+        "arm_configurations": list(ARM_CONFIG_IDS),
+        "camera_views": list(CAMERA_VIEW_IDS),
         "base_seed": int(args.base_seed),
         "render_config": copy.deepcopy(RENDER_CONFIG),
         "source_revision": source_revision,
@@ -319,10 +387,12 @@ def prepare_dataset_root(args):
             "scenarios",
             "difficulty_levels",
             "test_types",
-            "episodes_per_scene_per_level_test_type",
+            "episodes_per_cell",
             "paired_nuisance",
             "nuisance_pair_size",
             "environment_templates",
+            "arm_configurations",
+            "camera_views",
             "base_seed",
             "render_config",
             "generator_source_sha256",
@@ -418,6 +488,8 @@ def render_episode(env, task, dataset_root):
         "nuisance_pair_id": task["nuisance_pair_id"],
         "nuisance_signature": task["nuisance_signature"],
         "environment_template": task["environment"]["id"],
+        "arm_type": task["arm_type"],
+        "camera_view": task["camera_view"],
         "sampling_profile": task["episode_variation"]["profile"],
         "task": resolved_task,
         "control_labels": control_labels,

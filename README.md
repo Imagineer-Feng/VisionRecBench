@@ -44,7 +44,8 @@ VisionRecBench/
     agent.py                # offline model and random-baseline adapters
     dataset_io.py           # frozen dataset records and validation
     difficulty.py           # level names and per-level config resolution
-    env.py                  # Isaac Sim environment and Panda loading
+    camera_config.py        # front/overhead nuisance-view profiles
+    env.py                  # generic Isaac articulation environment
     environment_config.py   # balanced procedural laboratory templates
     episode_sampling.py     # balanced deterministic episode sampling
     multimodal.py           # shared image evidence and model input assembly
@@ -88,7 +89,7 @@ This check does not launch Isaac Sim:
 python3 scripts/generate_dataset.py --plan-only
 ```
 
-With the defaults it plans 864 unique episodes: 48 episodes × 3 scenes × 3 difficulty levels × 2 test types. `--episodes-per-scene` is the count **per scene, level, and test type** and must be divisible by 12 to preserve condition, answer-position, mapping, candidate-role, and environment-template balance.
+With the defaults it plans 2,592 unique episodes: 144 episodes × 3 scenes × 3 difficulty levels × 2 test types. `--episodes-per-cell` is the number of episodes in each `(scene, level, test_type)` experimental cell. It must be divisible by 36 so that the strict two-episode condition pairs cover every background × robot × camera combination equally often. Typical valid choices are 72, 108, 144, or any larger multiple of 36.
 
 To inspect a subset:
 
@@ -98,7 +99,7 @@ python3 scripts/generate_dataset.py \
   --scenario scene1_single_command_causality \
   --level 1 2 3 \
   --test-type choice judgment \
-  --episodes-per-scene 12
+  --episodes-per-cell 72
 ```
 
 ## 2. Generate the frozen dataset
@@ -107,20 +108,24 @@ Run generation with Isaac Sim's Python:
 
 ```shell
 $ISAACSIM_ROOT/python.sh scripts/generate_dataset.py \
-  --output datasets/visionrecbench_factorial_v4 \
-  --dataset-name visionrecbench_factorial_v4 \
-  --episodes-per-scene 48 \
+  --output datasets/visionrecbench_diverse_v5 \
+  --dataset-name visionrecbench_diverse_v5 \
+  --episodes-per-cell 144 \
   --level 1 2 3 \
   --test-type choice judgment \
   --base-seed 0 \
   --headless
 ```
 
-The `factorial_test_type_v4` sampler uses strict two-episode nuisance pairs. For every scene and test type, indices `2k` and `2k+1` share the exact command order and amplitude, initial pose, camera, lighting, floor, background, and procedural laboratory environment. Judgment pairs change only between self and non-self behavior; choice pairs change only which left/right candidate is self. The same nuisance pair is reused across all selected difficulty levels and both test types.
+The `balanced_robot_camera_v5` sampler uses strict two-episode nuisance pairs. For every scene and test type, indices `2k` and `2k+1` share the exact robot model, command order and amplitude, initial pose, camera view and offsets, lighting, floor, background, and procedural laboratory environment. Judgment pairs change only between self and non-self behavior; choice pairs change only which left/right candidate is self, and both candidates always use the same robot model. The same nuisance pair is reused across all selected difficulty levels and both test types.
 
-The visual context rotates evenly among three procedural templates: `robotics_lab`, `assembly_cell`, and `inspection_bay`. They add walls, floor markings, structural beams, workbenches, monitors, cabinets, shelving, bins, safety fencing, crates, calibration panels, and inspection consoles without placing answer-correlated objects near a candidate. These first-version props are static visual geometry with no collision or independent motion, keeping background richness separate from causal-task difficulty. Because every valid episode count is divisible by 12, every template appears equally often in every scene, difficulty, test type, and answer condition.
+The visual context rotates evenly among three procedural background templates: `robotics_lab`, `assembly_cell`, and `inspection_bay`. They add walls, floor markings, structural beams, workbenches, monitors, cabinets, shelving, bins, safety fencing, crates, calibration panels, and inspection consoles without placing answer-correlated objects near a candidate. These props are static visual geometry with no collision or independent motion, keeping background richness separate from causal-task difficulty.
 
-Render one initial-observation preview for each template before generating the full dataset:
+Robot appearance rotates among three official Isaac Sim articulations: Franka Panda, Universal Robots UR5, and Denso Cobotta Pro 900. The old `procedural_2link_arm` and `procedural_blue_arm` implementations have been removed. Camera view rotates between a frontal view and a high overhead view; both receive the same bounded random eye, target, and focal-length perturbations.
+
+Background, robot model, and camera view are nuisance variables, not experimental factors. Their 3 × 3 × 2 = 18 Cartesian combinations are exactly balanced inside every scene × level × test-type unit and every answer condition. At the default 144 episodes, every combination occurs in four nuisance pairs—eight episodes total, four under each answer condition.
+
+Render one initial-observation preview for each of the 18 nuisance combinations before generating the full dataset:
 
 ```shell
 $ISAACSIM_ROOT/python.sh scripts/render_environment_previews.py \
@@ -128,15 +133,15 @@ $ISAACSIM_ROOT/python.sh scripts/render_environment_previews.py \
   --headless
 ```
 
-Each record stores its `test_type`, a `nuisance_pair_id`, a content-derived `nuisance_signature`, and its `environment_template`. The deterministic plan and dataset validator reject incomplete pairs, unequal signatures, unbalanced templates, or pair sets that differ across levels or test types. With the default plan there are 72 nuisance pairs, each reused by two conditions across three levels and two test types, giving 12 episodes per pair. Generation also writes image checksums, `manifest.jsonl`, and `metadata.json`. Use `--resume` to continue an interrupted generation with matching configuration and source hashes.
+Each record stores its `test_type`, `arm_type`, `camera_view`, `environment_template`, a `nuisance_pair_id`, and a content-derived `nuisance_signature`. The deterministic plan and dataset validator reject incomplete pairs, unequal signatures, unbalanced nuisance combinations, or pair sets that differ across levels or test types. With the default plan there are 216 unique nuisance pairs across the three scenes (72 per scene); each pair is reused by two conditions across three levels and two test types, giving 12 episodes per pair. Generation also writes image checksums, `manifest.jsonl`, and `metadata.json`. Use `--resume` to continue an interrupted generation with matching configuration and source hashes.
 
 ## 3. Validate the dataset
 
 ```shell
-python3 scripts/validate_dataset.py datasets/visionrecbench_factorial_v4
+python3 scripts/validate_dataset.py datasets/visionrecbench_diverse_v5
 ```
 
-Validation checks record structure, images, checksums, episode uniqueness, per-scene/per-level/per-test-type balance, equal environment-template frequency, and strict nuisance-pair equality across conditions, levels, and test types. `--skip-checksums` provides a faster structural check.
+Validation checks record structure, images, checksums, episode uniqueness, per-scene/per-level/per-test-type balance, exact background × robot × camera balance, and strict nuisance-pair equality across conditions, levels, and test types. `--skip-checksums` provides a faster structural check.
 
 ## 4. Evaluate offline
 
@@ -144,7 +149,7 @@ No Isaac Sim process is started during evaluation:
 
 ```shell
 python3 scripts/evaluate_dataset.py \
-  --dataset datasets/visionrecbench_factorial_v4 \
+  --dataset datasets/visionrecbench_diverse_v5 \
   --model gpt-4o \
   --level 1 2 3 \
   --test-type choice judgment \
@@ -165,8 +170,8 @@ Each result records the frozen dataset hash, exact multimodal-input hash, episod
 
 ```shell
 python3 scripts/summarize_offline_results.py \
-  results/offline/visionrecbench_factorial_v4 \
-  --output results/offline/visionrecbench_factorial_v4/summary.json
+  results/offline/visionrecbench_diverse_v5 \
+  --output results/offline/visionrecbench_diverse_v5/summary.json
 ```
 
 The summary reports accuracy and invalid-response rate per model, scene, difficulty, and test type. Judgment groups also report self/non-self recall, balanced accuracy, and self-attribution rate; choice groups report position recall and prediction distributions. When complete paired results are available, confidence intervals use nuisance-pair cluster bootstrap rather than incorrectly treating the two matched episodes as independent.
@@ -175,5 +180,5 @@ The summary reports accuracy and invalid-response rate per model, scene, difficu
 
 - Render quality is fixed in `source/render_config.py`.
 - Prompt text is fixed in `source/prompts.py` and is shared across all 18 scene/level/test-type combinations.
-- Existing legacy datasets and results are not modified. In particular, `visionrecbench_robust_v1` and `visionrecbench_robust_v3` represent earlier experimental designs and should not be combined with `visionrecbench_factorial_v4`.
+- Existing legacy datasets and results are not modified. In particular, `visionrecbench_robust_v1`, `visionrecbench_robust_v3`, and `visionrecbench_factorial_v4` represent earlier experimental designs and should not be combined with `visionrecbench_diverse_v5`.
 - A change to scene physics, sampling, evidence construction, or prompts should produce a newly named frozen dataset rather than overwriting an existing one.

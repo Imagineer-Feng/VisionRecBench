@@ -1,5 +1,4 @@
 import copy
-import math
 from pathlib import Path
 
 import numpy as np
@@ -7,11 +6,10 @@ import numpy as np
 import carb
 from isaacsim.core.api import World
 from isaacsim.core.api.objects import FixedCuboid
-from isaacsim.core.prims import SingleArticulation, XFormPrim
+from isaacsim.core.prims import SingleArticulation
 from isaacsim.core.utils.stage import add_reference_to_stage
 from isaacsim.core.utils.viewports import set_camera_view
 from isaacsim.sensors.camera import Camera
-import isaacsim.core.utils.numpy.rotations as rot_utils
 from pxr import Gf, Sdf, UsdGeom, UsdLux, UsdShade
 
 from source.render_config import RENDER_CONFIG
@@ -63,7 +61,11 @@ class VisionRecBenchEnv:
         self.warmup_frames = int(RENDER_CONFIG["warmup_frames"])
         self.render_frames = int(RENDER_CONFIG["render_frames"])
         self.arm_cfg = self.task_dict["arm"]
-        self.arm_root = self.arm_cfg.get("root", "procedural")
+        self.arm_root = self.arm_cfg.get("root")
+        if self.arm_root != "articulation":
+            raise ValueError(
+                "All arm configurations must use an Isaac Sim articulation."
+            )
         self.num_arms = int(self.task_dict["num_arms"])
         self.episode_steps = int(self.task_dict["episode_steps"])
         self.rng = np.random.default_rng(int(self.task_dict.get("seed", 0)))
@@ -77,30 +79,21 @@ class VisionRecBenchEnv:
         self.world = World(stage_units_in_meters=1.0)
         self.stage = self.world.stage
 
-        self.link_lengths = np.array(self.arm_cfg["link_lengths"], dtype=float)
-        self.link_thickness = float(self.arm_cfg.get("link_thickness", 0.08))
-        self.base_size = np.array(self.arm_cfg["base_size"], dtype=float)
-        self.wrist_size = np.array(self.arm_cfg["wrist_size"], dtype=float)
+        self.arm_id = str(self.arm_cfg["id"])
+        self.joint_names = list(self.arm_cfg["joint_names"])
         self.initial_joints = np.array(
-            self.arm_cfg.get(
-                "initial_joint_positions",
-                self.arm_cfg.get("initial_joints_deg"),
-            ),
+            self.arm_cfg["initial_joint_positions"], dtype=float
+        )
+        self.joint_limits = np.array(self.arm_cfg["joint_limits"], dtype=float)
+        self.command_step = float(self.arm_cfg["command_step"])
+        self.arm_orientation = np.array(
+            self.arm_cfg.get("orientation", [1.0, 0.0, 0.0, 0.0]),
             dtype=float,
         )
-        self.joint_limits = np.array(
-            self.arm_cfg.get(
-                "joint_limits",
-                self.arm_cfg.get("joint_limits_deg"),
-            ),
-            dtype=float,
-        )
-        self.command_step = float(
-            self.arm_cfg.get(
-                "command_step",
-                self.arm_cfg.get("command_step_deg"),
-            )
-        )
+        if len(self.joint_names) != len(self.initial_joints):
+            raise ValueError("arm joint_names and initial positions must align.")
+        if self.joint_limits.shape != (len(self.joint_names), 2):
+            raise ValueError("arm joint_limits must contain one pair per joint.")
         self.command_sequence = copy.deepcopy(self.task_dict["command_sequence"])
         self.command_dim = len(self.command_sequence[0]["delta"])
         default_labels = (
@@ -632,9 +625,9 @@ class VisionRecBenchEnv:
                 "joints": self.initial_joints.copy(),
                 "smooth_command": np.zeros(self.command_dim),
                 "command_schedule": None,
-                "xforms": {},
                 "articulation": None,
-                "control_indices": None,
+                "articulation_joint_indices": None,
+                "control_config_indices": None,
             }
             self._create_single_arm(arm)
             self.arms.append(arm)
@@ -653,12 +646,7 @@ class VisionRecBenchEnv:
         ]
 
     def _create_single_arm(self, arm):
-        if self.arm_root == "panda":
-            self._create_panda_arm(arm)
-        elif self.arm_root == "usd":
-            self._create_usd_arm(arm)
-        else:
-            self._create_procedural_arm(arm)
+        self._create_articulation_arm(arm)
 
     def _resolve_usd_path(self, asset_path):
         asset_path = str(asset_path)
@@ -677,93 +665,24 @@ class VisionRecBenchEnv:
             raise FileNotFoundError(f"USD arm asset not found: {path}")
         return str(path)
 
-    def _create_panda_arm(self, arm):
+    def _create_articulation_arm(self, arm):
         prefix = f"/World/Arm_{arm['index']}"
         asset_path = self._resolve_usd_path(self.arm_cfg["asset_path"])
         add_reference_to_stage(usd_path=asset_path, prim_path=prefix)
 
-        orientation = np.array(self.arm_cfg.get("orientation", [1.0, 0.0, 0.0, 0.0]))
         articulation = SingleArticulation(
             prim_path=prefix,
-            name=f"panda_arm_{arm['index']}",
+            name=f"{self.arm_id}_{arm['index']}",
             position=arm["base_pos"],
-            orientation=orientation,
+            orientation=self.arm_orientation,
         )
         arm["articulation"] = self.world.scene.add(articulation)
-
-    def _create_usd_arm(self, arm):
-        prefix = f"/World/Arm_{arm['index']}"
-        asset_path = self._resolve_usd_path(self.arm_cfg["asset_path"])
-
-        root_prim = UsdGeom.Xform.Define(self.stage, Sdf.Path(prefix)).GetPrim()
-        asset_prim_path = self.arm_cfg.get("asset_prim_path")
-        if asset_prim_path:
-            root_prim.GetReferences().AddReference(
-                str(asset_path),
-                Sdf.Path(str(asset_prim_path)),
-            )
-        else:
-            root_prim.GetReferences().AddReference(str(asset_path))
-
-        part_paths = self.arm_cfg.get("part_paths", {})
-        required_parts = ["base", "shoulder", "link1", "elbow", "link2", "wrist"]
-        missing = [name for name in required_parts if name not in part_paths]
-        if missing:
-            raise ValueError(
-                "USD arm config is missing part_paths for: "
-                f"{', '.join(missing)}"
-            )
-
-        for part_name in required_parts:
-            rel_path = str(part_paths[part_name]).strip("/")
-            prim_path = f"{prefix}/{rel_path}"
-            if not self.stage.GetPrimAtPath(prim_path).IsValid():
-                raise ValueError(
-                    f"USD arm part '{part_name}' does not exist at {prim_path}. "
-                    "Update tasks/arm_repo.json part_paths to match the USD asset."
-                )
-            arm["xforms"][part_name] = XFormPrim(prim_paths_expr=prim_path)
-
-        self._update_arm_pose(arm)
-
-    def _create_procedural_arm(self, arm):
-        prefix = f"/World/Arm_{arm['index']}"
-        UsdGeom.Xform.Define(self.stage, Sdf.Path(prefix))
-        colors = {
-            "base": self.arm_cfg["base_color"],
-            "link": self.arm_cfg["link_color"],
-            "joint": self.arm_cfg["joint_color"],
-            "wrist": self.arm_cfg["wrist_color"],
-        }
-
-        parts = [
-            ("base", np.array(arm["base_pos"]) + np.array([0.0, 0.0, self.base_size[2] / 2]), self.base_size, colors["base"]),
-            ("shoulder", np.zeros(3), np.array([self.wrist_size[0], self.wrist_size[1], self.wrist_size[2]]), colors["joint"]),
-            ("link1", np.zeros(3), np.array([self.link_thickness, self.link_lengths[0], self.link_thickness]), colors["link"]),
-            ("elbow", np.zeros(3), np.array([self.wrist_size[0], self.wrist_size[1], self.wrist_size[2]]), colors["joint"]),
-            ("link2", np.zeros(3), np.array([self.link_thickness, self.link_lengths[1], self.link_thickness]), colors["link"]),
-            ("wrist", np.zeros(3), self.wrist_size, colors["wrist"]),
-        ]
-
-        for part_name, position, scale, color in parts:
-            prim_path = f"{prefix}/{part_name}"
-            FixedCuboid(
-                prim_path=prim_path,
-                name=f"arm_{arm['index']}_{part_name}",
-                position=position,
-                size=1.0,
-                scale=scale,
-            )
-            self._create_and_bind_material(
-                prim_path,
-                f"/World/Looks/Arm{arm['index']}_{part_name}",
-                color=color,
-                metallic=0.0,
-                roughness=0.45,
-            )
-            arm["xforms"][part_name] = XFormPrim(prim_paths_expr=prim_path)
-
-        self._update_arm_pose(arm)
+        # SingleArticulation's constructor pose is not automatically retained
+        # as the reset pose for every referenced USD, so persist it explicitly.
+        arm["articulation"].set_default_state(
+            position=arm["base_pos"],
+            orientation=self.arm_orientation,
+        )
 
     def _create_camera(self):
         camera_eye = self._cfg_vec("camera_eye", [0.0, -3.9, 2.15])
@@ -798,48 +717,21 @@ class VisionRecBenchEnv:
         mat.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), "surface")
         UsdShade.MaterialBindingAPI(self.stage.GetPrimAtPath(prim_path)).Bind(mat)
 
-    def _quat_x(self, angle_deg):
-        return rot_utils.euler_angles_to_quats(
-            np.array([[angle_deg, 0.0, 0.0]]),
-            degrees=True,
-            extrinsic=False,
-        )
-
     def _update_arm_pose(self, arm):
-        if self.arm_root == "panda":
-            arm["articulation"].set_joint_positions(arm["joints"])
-            return
-
-        shoulder = arm["base_pos"] + np.array([0.0, 0.0, self.base_size[2]])
-        theta1 = math.radians(float(arm["joints"][0]))
-        theta2 = math.radians(float(arm["joints"][0] + arm["joints"][1]))
-
-        elbow = shoulder + np.array(
-            [0.0, self.link_lengths[0] * math.cos(theta1), self.link_lengths[0] * math.sin(theta1)]
-        )
-        wrist = elbow + np.array(
-            [0.0, self.link_lengths[1] * math.cos(theta2), self.link_lengths[1] * math.sin(theta2)]
-        )
-
-        link1_mid = (shoulder + elbow) / 2.0
-        link2_mid = (elbow + wrist) / 2.0
-
-        arm["xforms"]["shoulder"].set_world_poses(positions=np.array([shoulder]))
-        arm["xforms"]["elbow"].set_world_poses(positions=np.array([elbow]))
-        arm["xforms"]["wrist"].set_world_poses(positions=np.array([wrist]))
-        arm["xforms"]["link1"].set_world_poses(
-            positions=np.array([link1_mid]),
-            orientations=self._quat_x(float(arm["joints"][0])),
-        )
-        arm["xforms"]["link2"].set_world_poses(
-            positions=np.array([link2_mid]),
-            orientations=self._quat_x(float(arm["joints"][0] + arm["joints"][1])),
+        self._initialize_articulation_controls(arm)
+        arm["articulation"].set_joint_positions(
+            arm["joints"],
+            joint_indices=arm["articulation_joint_indices"],
         )
 
     def reset(self):
         self.command_memory = []
         self.world.reset()
         for arm in self.arms:
+            arm["articulation"].set_world_pose(
+                position=arm["base_pos"],
+                orientation=self.arm_orientation,
+            )
             arm["joints"] = self.initial_joints.copy()
             arm["smooth_command"] = np.zeros(self.command_dim)
             behavior_name = arm["behavior"]["behavior"]
@@ -862,8 +754,7 @@ class VisionRecBenchEnv:
                 )
             else:
                 arm["command_schedule"] = None
-            if self.arm_root == "panda":
-                self._initialize_panda_controls(arm)
+            self._initialize_articulation_controls(arm)
             self._update_arm_pose(arm)
 
         self.camera.initialize()
@@ -899,37 +790,54 @@ class VisionRecBenchEnv:
 
         return self._capture_rgb(), applied_commands
 
-    def _initialize_panda_controls(self, arm):
-        if arm["control_indices"] is not None:
+    def _initialize_articulation_controls(self, arm):
+        if arm["control_config_indices"] is not None:
             return
 
-        control_joints = self.arm_cfg.get(
-            "control_joints",
-            ["panda_joint2", "panda_joint4"],
+        articulation_joint_indices = np.array(
+            [
+                arm["articulation"].get_dof_index(name)
+                for name in self.joint_names
+            ],
+            dtype=int,
         )
+        if np.any(articulation_joint_indices < 0):
+            missing = [
+                name
+                for name, index in zip(
+                    self.joint_names, articulation_joint_indices
+                )
+                if index < 0
+            ]
+            raise ValueError(
+                f"Arm {self.arm_id} is missing configured joints: {missing}"
+            )
+        control_joints = list(self.arm_cfg["control_joints"])
         if len(control_joints) != self.command_dim:
             raise ValueError(
-                "Panda control_joints length must match command delta dimension."
+                "arm control_joints length must match command delta dimension."
             )
-        arm["control_indices"] = np.array(
-            [arm["articulation"].get_dof_index(name) for name in control_joints],
+        unknown = [name for name in control_joints if name not in self.joint_names]
+        if unknown:
+            raise ValueError(
+                f"Arm {self.arm_id} has unknown control joints: {unknown}"
+            )
+        arm["articulation_joint_indices"] = articulation_joint_indices
+        arm["control_config_indices"] = np.array(
+            [self.joint_names.index(name) for name in control_joints],
             dtype=int,
         )
 
     def _advance_joints(self, arm, applied):
-        if self.arm_root == "panda":
-            self._initialize_panda_controls(arm)
-            for command_axis, joint_index in enumerate(arm["control_indices"]):
-                arm["joints"][joint_index] += float(applied[command_axis]) * self.command_step
-            arm["joints"] = np.clip(
-                arm["joints"],
-                self.joint_limits[:, 0],
-                self.joint_limits[:, 1],
+        self._initialize_articulation_controls(arm)
+        for command_axis, config_index in enumerate(
+            arm["control_config_indices"]
+        ):
+            arm["joints"][config_index] += (
+                float(applied[command_axis]) * self.command_step
             )
-            return
-
         arm["joints"] = np.clip(
-            arm["joints"] + applied * self.command_step,
+            arm["joints"],
             self.joint_limits[:, 0],
             self.joint_limits[:, 1],
         )

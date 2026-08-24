@@ -19,6 +19,8 @@ repos = {
     "scenario": _load_repo("scenario"),
 }
 
+ARM_CONFIG_IDS = tuple(repos["arm"])
+
 SCENARIO_ALIASES = {
     "scene1_single_direct_or_random": "scene1_single_command_causality",
     "scene1_single_random": "scene1_single_deranged",

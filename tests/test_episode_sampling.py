@@ -6,11 +6,13 @@ import numpy as np
 
 from source.difficulty import DIFFICULTY_LEVELS
 from source.environment_config import ENVIRONMENT_TEMPLATE_IDS
+from source.camera_config import CAMERA_VIEW_IDS, OVERHEAD_CAMERA
 from source.episode_sampling import (
+    NUISANCE_COMBINATION_COUNT,
     STANDARD_SCENARIOS,
     build_episode_task,
 )
-from source.preprocess import TEST_TYPES, construct
+from source.preprocess import ARM_CONFIG_IDS, TEST_TYPES, construct, repos
 from source.task_logic import (
     build_mismatched_command_schedule,
     build_multi_arm_role_assignment,
@@ -33,6 +35,8 @@ class EpisodeSamplingTest(unittest.TestCase):
         "floor_color",
         "background_color",
         "environment",
+        "arm_type",
+        "camera_view",
     )
 
     def test_sampling_is_deterministic(self):
@@ -233,6 +237,99 @@ class EpisodeSamplingTest(unittest.TestCase):
                         set(ENVIRONMENT_TEMPLATE_IDS),
                     )
                     self.assertEqual(set(counts.values()), {8})
+
+    def test_robot_camera_background_combinations_are_strictly_balanced(self):
+        episodes_per_unit = 144
+        for scenario in STANDARD_SCENARIOS:
+            for test_type in TEST_TYPES:
+                counts = Counter()
+                for index in range(episodes_per_unit):
+                    task = build_episode_task(
+                        scenario,
+                        index,
+                        level=2,
+                        test_type=test_type,
+                        base_seed=19,
+                    )
+                    if task["task_mode"] == "single_binary":
+                        options = task["visible_arm_behavior_options"]
+                        selected = select_behavior_option(
+                            options,
+                            task["seed"],
+                            task["behavior_selection"],
+                        )
+                        condition = bool(options[selected]["target_present"])
+                    else:
+                        assignments = build_multi_arm_role_assignment(
+                            task["num_arms"],
+                            task["distractors"],
+                            task["seed"],
+                            target_behavior=task.get("target_behavior"),
+                        )
+                        condition = next(
+                            item["index"]
+                            for item in assignments
+                            if item["role"] == "target"
+                        )
+                    counts[
+                        (
+                            condition,
+                            task["environment"]["id"],
+                            task["arm_type"],
+                            task["camera_view"],
+                        )
+                    ] += 1
+
+                self.assertEqual(
+                    len(counts),
+                    2 * NUISANCE_COMBINATION_COUNT,
+                )
+                self.assertEqual(set(counts.values()), {4})
+
+    def test_arm_repository_contains_only_three_articulation_robots(self):
+        self.assertEqual(
+            ARM_CONFIG_IDS,
+            ("panda_arm", "ur5_arm", "cobotta_pro_900_arm"),
+        )
+        for arm_id in ARM_CONFIG_IDS:
+            arm = repos["arm"][arm_id]
+            self.assertEqual(arm["id"], arm_id)
+            self.assertEqual(arm["root"], "articulation")
+            self.assertTrue(arm["asset_path"].startswith("isaac://"))
+            self.assertEqual(len(arm["joint_names"]), len(arm["joint_limits"]))
+            self.assertEqual(
+                len(arm["joint_names"]),
+                len(arm["initial_joint_positions"]),
+            )
+            self.assertEqual(len(arm["control_joints"]), 4)
+            self.assertTrue(
+                set(arm["control_joints"]).issubset(arm["joint_names"])
+            )
+
+    def test_front_and_overhead_views_use_the_same_random_offset_bounds(self):
+        front = build_episode_task(
+            STANDARD_SCENARIOS[0], 0, base_seed=0
+        )
+        overhead = build_episode_task(
+            STANDARD_SCENARIOS[0], 18, base_seed=0
+        )
+        self.assertEqual(front["camera_view"], "front")
+        self.assertEqual(overhead["camera_view"], "overhead")
+        self.assertEqual(set(CAMERA_VIEW_IDS), {"front", "overhead"})
+        overhead_eye_offset = np.asarray(overhead["camera_eye"]) - np.asarray(
+            OVERHEAD_CAMERA["camera_eye"]
+        )
+        overhead_target_offset = np.asarray(
+            overhead["camera_target"]
+        ) - np.asarray(OVERHEAD_CAMERA["camera_target"])
+        self.assertTrue(
+            np.all(np.abs(overhead_eye_offset) <= [0.18, 0.16, 0.12])
+        )
+        self.assertTrue(
+            np.all(np.abs(overhead_target_offset) <= [0.08, 0.04, 0.06])
+        )
+        self.assertLess(overhead["camera_eye"][1], overhead["camera_target"][1])
+        self.assertGreater(overhead["camera_eye"][2], 5.0)
 
     def test_sampling_changes_commands_pose_camera_and_lighting(self):
         scenario = "scene3_dyad_causal_identification"

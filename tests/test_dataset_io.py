@@ -97,6 +97,9 @@ class DatasetIOTest(unittest.TestCase):
                 "nuisance_pair_id": pair_id,
                 "nuisance_signature": signature,
                 "environment": {"id": "robotics_lab"},
+                "arm": {"id": "panda_arm"},
+                "arm_type": "panda_arm",
+                "camera_view": "front",
             }
             record = {
                 "schema_version": DATASET_SCHEMA_VERSION,
@@ -112,6 +115,8 @@ class DatasetIOTest(unittest.TestCase):
                 "nuisance_pair_id": pair_id,
                 "nuisance_signature": signature,
                 "environment_template": "robotics_lab",
+                "arm_type": "panda_arm",
+                "camera_view": "front",
                 "target_present": target_present,
                 "target_index": 1 if target_present else None,
                 "answer_index": answer_index,
@@ -138,10 +143,12 @@ class DatasetIOTest(unittest.TestCase):
             "scenarios": ["test_scenario"],
             "difficulty_levels": [1],
             "test_types": ["judgment"],
-            "episodes_per_scene_per_level_test_type": 2,
+            "episodes_per_cell": 2,
             "paired_nuisance": True,
             "nuisance_pair_size": 2,
             "environment_templates": ["robotics_lab"],
+            "arm_configurations": ["panda_arm"],
+            "camera_views": ["front"],
             "content_sha256": dataset_content_hash(rows),
         }
         atomic_write_json(root / "metadata.json", metadata)
