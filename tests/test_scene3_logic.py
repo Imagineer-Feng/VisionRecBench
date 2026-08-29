@@ -3,7 +3,7 @@ from collections import Counter, defaultdict
 
 import numpy as np
 
-from source.multimodal import build_prompts, make_candidate_motion_panel
+from source.multimodal import build_prompts, make_workspace_motion_panel
 from source.preprocess import construct
 from source.task_logic import build_multi_arm_role_assignment
 
@@ -91,7 +91,10 @@ class Scene3LogicTest(unittest.TestCase):
         self.assertEqual(self.task["episode_steps"], 8)
         self.assertEqual(self.task["judge_start_step"], 8)
         self.assertEqual(self.task["judge_interval_steps"], 8)
-        self.assertEqual(self.task["visual_history_mode"], "candidate_motion_panels")
+        self.assertEqual(
+            self.task["visual_history_mode"],
+            "workspace_motion_panels",
+        )
         self.assertTrue(self.task["annotate_candidates"])
 
     def test_prompt_does_not_disclose_delay(self):
@@ -103,13 +106,13 @@ class Scene3LogicTest(unittest.TestCase):
         self.assertNotIn("previous step", prompt.lower())
         self.assertNotIn("difficulty", prompt.lower())
 
-    def test_candidate_motion_panel_contains_before_after_and_signed_change(self):
+    def test_workspace_motion_panel_contains_before_after_and_signed_change(self):
         previous = np.full((96, 96, 3), 30, dtype=np.uint8)
         current = previous.copy()
         current[20:42, 8:24, :] = 220
         current[48:68, 70:88, :] = 6
 
-        panel = make_candidate_motion_panel(
+        panel = make_workspace_motion_panel(
             previous,
             current,
             num_candidates=2,

@@ -35,7 +35,7 @@
         "seed": 101,
         "judge_interval_steps": 8,
         "judge_start_step": 8,
-        "visual_history_mode": "motion_diffs",
+        "visual_history_mode": "workspace_motion_panels",
         "behavior_family_desc": "- Self case: every visible movement follows the motor command listed for that same step.\n- Non-self case: the arm executes the same overall command set in a different order, so its total motion budget is comparable but each visible movement is paired with the wrong current command.",
         "command_sequence": [
             {"name": "base_yaw_left", "delta": [1, 0, 0, 0]},
@@ -87,7 +87,7 @@
         "seed": 102,
         "judge_interval_steps": 8,
         "judge_start_step": 8,
-        "visual_history_mode": "motion_diffs",
+        "visual_history_mode": "workspace_motion_panels",
         "behavior_family_desc": "- Self case: every visible movement follows the motor command listed for that same step.\n- Non-self case: the arm executes the same overall command set in a different order, so its total motion budget is comparable but each visible movement is paired with the wrong current command.",
         "command_sequence": [
             {"name": "base_yaw_left", "delta": [1, 0, 0, 0]},
@@ -150,7 +150,7 @@
         "seed": 103,
         "judge_interval_steps": 8,
         "judge_start_step": 8,
-        "visual_history_mode": "motion_diffs",
+        "visual_history_mode": "workspace_motion_panels",
         "behavior_family_desc": "The self arm follows every current command. The non-self arm preserves the same command multiset and total motion budget but has a difficulty-controlled number of same-step mismatches.",
         "command_sequence": [
             {"name": "base_yaw_left", "delta": [1, 0, 0, 0]},
@@ -232,7 +232,7 @@
         "seed": 201,
         "judge_interval_steps": 16,
         "judge_start_step": 16,
-        "visual_history_mode": "motion_diffs",
+        "visual_history_mode": "workspace_motion_panels",
         "behavior_family_desc": "The self arm uses one fixed hidden mapping across four cycles. The non-self arm uses a difficulty-controlled pattern of repeated and changed mappings.",
         "command_sequence": [
             {"name": "cycle_base_yaw_left", "delta": [1, 0, 0, 0]},
@@ -272,7 +272,7 @@
         "seed": 13,
         "judge_interval_steps": 8,
         "judge_start_step": 8,
-        "visual_history_mode": "candidate_motion_panels",
+        "visual_history_mode": "workspace_motion_panels",
         "behavior_family_desc": "The self arm follows the current command directly. The non-self arm follows an earlier command with a difficulty-controlled delay.",
         "distractors": [
             {

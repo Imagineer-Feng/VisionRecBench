@@ -22,7 +22,7 @@ from source.multimodal import (  # noqa: E402
     build_prompts,
     get_control_labels,
 )
-from source.agent import create_identifier  # noqa: E402
+from source.agent import IMAGE_DETAIL, create_identifier  # noqa: E402
 from source.dataset_io import (  # noqa: E402
     DATASET_SCHEMA_VERSION,
     atomic_write_json,
@@ -192,6 +192,7 @@ def evaluate_one(
         "seed": record["seed"],
         "model": model,
         "api_endpoint": sanitized_api_endpoint(model),
+        "image_detail": IMAGE_DETAIL if model != "random" else None,
         "difficulty_level": int(record["difficulty_level"]),
         "difficulty_name": record["difficulty_name"],
         "test_type": record["test_type"],

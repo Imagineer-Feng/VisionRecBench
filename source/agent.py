@@ -16,6 +16,7 @@ SYSTEM_MESSAGE = (
     "controlled. Compare the visible simulated robot motion with the provided "
     "motor-command trace and choose the requested answer option."
 )
+IMAGE_DETAIL = "high"
 
 
 def image_to_data_url(image):
@@ -145,7 +146,10 @@ class OpenAIIdentifier(IdentifierBase):
                 payload.append(
                     {
                         "type": "image_url",
-                        "image_url": {"url": image_to_data_url(item)},
+                        "image_url": {
+                            "url": image_to_data_url(item),
+                            "detail": IMAGE_DETAIL,
+                        },
                     }
                 )
             else:

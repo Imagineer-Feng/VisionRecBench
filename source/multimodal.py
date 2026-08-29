@@ -1,7 +1,8 @@
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
 from source.action import options_string
+from source.camera_config import EVIDENCE_WORKSPACE_CROPS
 from source.prompts import PROMPT_PREFIX, PROMPT_SUFFIX
 
 
@@ -109,25 +110,29 @@ def annotate_candidates(image, num_candidates):
     image = np.asarray(image)
     if image.ndim != 3 or image.shape[2] < 3:
         return image
+    if num_candidates < 1:
+        raise ValueError("num_candidates must be positive")
 
     pil_image = Image.fromarray(image[:, :, :3], mode="RGB")
     draw = ImageDraw.Draw(pil_image)
     width, height = pil_image.size
-    y = max(10, int(height * 0.04))
-    radius = max(14, width // 42)
+    radius = max(18, width // 32)
+    y = max(radius + 8, int(height * 0.08))
+    font = _load_font(max(18, int(radius * 1.15)))
 
     for index in range(1, num_candidates + 1):
         x = int(width * (index - 0.5) / num_candidates)
         box = [x - radius, y - radius, x + radius, y + radius]
         draw.ellipse(box, fill=(0, 0, 0), outline=(255, 255, 255), width=3)
         label = str(index)
-        bbox = draw.textbbox((0, 0), label)
+        bbox = draw.textbbox((0, 0), label, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
         draw.text(
-            (x - text_w / 2, y - text_h / 2 - 1),
+            (x - text_w / 2, y - text_h / 2 - bbox[1]),
             label,
             fill=(255, 255, 255),
+            font=font,
         )
 
     return np.asarray(pil_image)
@@ -175,12 +180,27 @@ def _fit_image(image, size, nearest=False):
     return tile
 
 
-def _candidate_strip(image, candidate_index, num_candidates):
+def _load_font(size):
+    try:
+        return ImageFont.truetype("DejaVuSans-Bold.ttf", size=size)
+    except OSError:
+        return ImageFont.load_default()
+
+
+def _workspace_crop(image, camera_view):
+    """Return a behavior-independent crop containing every robot workspace."""
     image = np.asarray(image[:, :, :3], dtype=np.uint8)
-    width = image.shape[1]
-    left = int(round(width * (candidate_index - 1) / num_candidates))
-    right = int(round(width * candidate_index / num_candidates))
-    return image[:, left:right, :]
+    try:
+        left, top, right, bottom = EVIDENCE_WORKSPACE_CROPS[camera_view]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported camera view: {camera_view!r}") from exc
+
+    height, width = image.shape[:2]
+    left_px = max(0, min(width - 1, int(round(left * width))))
+    right_px = max(left_px + 1, min(width, int(round(right * width))))
+    top_px = max(0, min(height - 1, int(round(top * height))))
+    bottom_px = max(top_px + 1, min(height, int(round(bottom * height))))
+    return image[top_px:bottom_px, left_px:right_px, :].copy()
 
 
 def _signed_change_image(previous, current):
@@ -204,14 +224,14 @@ def _signed_change_image(previous, current):
     return base
 
 
-def make_candidate_motion_panel(
+def make_workspace_motion_panel(
     previous_image,
     current_image,
     num_candidates,
+    camera_view="front",
     annotate=True,
 ):
-    """Lay out candidate rows and temporal columns without distorting images."""
-    del annotate
+    """Lay out one complete workspace in three undistorted temporal columns."""
     previous = np.asarray(previous_image[:, :, :3], dtype=np.uint8)
     current = np.asarray(current_image[:, :, :3], dtype=np.uint8)
     if previous.shape != current.shape:
@@ -220,19 +240,28 @@ def make_candidate_motion_panel(
         raise ValueError("num_candidates must be positive")
 
     height, width = current.shape[:2]
-    row_label_width = max(96, width // 10)
-    label_height = max(32, height // 28)
-    header_height = label_height * 2
+    previous_crop = _workspace_crop(previous, camera_view)
+    current_crop = _workspace_crop(current, camera_view)
+    change_crop = _signed_change_image(previous_crop, current_crop)
+    if annotate:
+        previous_crop = annotate_candidates(previous_crop, num_candidates)
+        current_crop = annotate_candidates(current_crop, num_candidates)
+        change_crop = annotate_candidates(change_crop, num_candidates)
+
+    legend_height = max(24, min(32, height // 16))
+    label_height = max(32, min(40, height // 20))
+    header_height = legend_height + label_height
     column_labels = ("BEFORE", "AFTER", "SIGNED CHANGE")
     column_count = len(column_labels)
-    tile_width = max(1, width // column_count)
-    candidate_source_width = max(1.0, width / num_candidates)
+    # At production resolution this is exactly one 512 px API tile per
+    # temporal column: robots remain large while the panel stays economical.
+    tile_width = max(1, min(512, width // 2))
     tile_height = max(
         1,
-        int(round(tile_width * height / candidate_source_width)),
+        int(round(tile_width * current_crop.shape[0] / current_crop.shape[1])),
     )
-    panel_width = row_label_width + tile_width * column_count
-    panel_height = header_height + tile_height * num_candidates
+    panel_width = tile_width * column_count
+    panel_height = header_height + tile_height
 
     panel = Image.new(
         "RGB",
@@ -241,66 +270,50 @@ def make_candidate_motion_panel(
     )
     draw = ImageDraw.Draw(panel)
 
-    for column_index, label in enumerate(column_labels):
-        x = row_label_width + column_index * tile_width
+    label_font = _load_font(max(12, min(20, label_height // 2)))
+    for column_index, (label, crop) in enumerate(
+        zip(column_labels, (previous_crop, current_crop, change_crop))
+    ):
+        x = column_index * tile_width
         draw.text(
-            (x + 8, label_height + max(6, label_height // 4)),
+            (x + 10, legend_height + max(5, label_height // 4)),
             label,
             fill=(255, 255, 255),
+            font=label_font,
         )
         draw.line(
-            [(x, label_height), (x, panel_height)],
+            [(x, legend_height), (x, panel_height)],
             fill=(255, 255, 255),
             width=1,
         )
-
-    for candidate_index in range(1, num_candidates + 1):
-        y = header_height + (candidate_index - 1) * tile_height
-        draw.text(
-            (8, y + max(6, tile_height // 2 - 6)),
-            f"candidate {candidate_index}",
-            fill=(255, 255, 255),
+        tile = _fit_image(
+            crop,
+            (tile_width, tile_height),
+            nearest=column_index == 2,
         )
-
-        previous_crop = _candidate_strip(previous, candidate_index, num_candidates)
-        current_crop = _candidate_strip(current, candidate_index, num_candidates)
-        change_crop = _signed_change_image(previous_crop, current_crop)
-        crops = (previous_crop, current_crop, change_crop)
-
-        for column_index, crop in enumerate(crops):
-            x = row_label_width + column_index * tile_width
-            tile = _fit_image(
-                crop,
-                (tile_width, tile_height),
-                nearest=column_index == 2,
-            )
-            panel.paste(tile, (x, y))
-
-        draw.line(
-            [(0, y), (panel_width, y)],
-            fill=(255, 255, 255),
-            width=1,
-        )
+        panel.paste(tile, (x, header_height))
 
     legend = "signed change: orange=new/current pixels, blue=old/previous pixels"
-    legend_box = draw.textbbox((0, 0), legend)
+    legend_font = _load_font(max(10, min(16, legend_height // 2)))
+    legend_box = draw.textbbox((0, 0), legend, font=legend_font)
     legend_width = legend_box[2] - legend_box[0]
     draw.rectangle(
         [
             4,
             4,
             min(panel.size[0] - 4, legend_width + 18),
-            min(label_height - 4, 28),
+            legend_height - 4,
         ],
         fill=(0, 0, 0),
     )
     draw.text(
-        (10, 8),
+        (10, max(3, (legend_height - (legend_box[3] - legend_box[1])) // 2)),
         legend,
         fill=(255, 255, 255),
+        font=legend_font,
     )
     draw.line(
-        [(0, label_height), (panel.size[0], label_height)],
+        [(0, legend_height), (panel.size[0], legend_height)],
         fill=(255, 255, 255),
         width=1,
     )

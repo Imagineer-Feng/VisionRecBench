@@ -174,7 +174,7 @@ def _apply_test_type(task_dict, test_type, scenario_name):
                 ],
                 "shuffle_answer_options": True,
                 "annotate_candidates": False,
-                "visual_history_mode": "candidate_motion_panels",
+                "visual_history_mode": "workspace_motion_panels",
             }
         )
         return task_dict
@@ -188,7 +188,7 @@ def _apply_test_type(task_dict, test_type, scenario_name):
             "distractors": [copy.deepcopy(nonself_behavior)],
             "role_assignment_strategy": "seed_stratified",
             "annotate_candidates": True,
-            "visual_history_mode": "candidate_motion_panels",
+            "visual_history_mode": "workspace_motion_panels",
         }
     )
     task_dict.pop("answer_options", None)

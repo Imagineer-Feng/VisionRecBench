@@ -11,7 +11,7 @@ from scripts.evaluate_dataset import (
     content_sha256,
     evaluate_one,
 )
-from source.agent import RandomIdentifier
+from source.agent import IMAGE_DETAIL, OpenAIIdentifier, RandomIdentifier
 from source.multimodal import get_control_labels
 from source.preprocess import construct
 from source.task_logic import configure_binary_answers
@@ -66,7 +66,7 @@ class OfflineEvaluationTest(unittest.TestCase):
                 "test_type": "judgment",
                 "task": task,
                 "control_labels": get_control_labels(task),
-                "visual_history_mode": "motion_diffs",
+                "visual_history_mode": "workspace_motion_panels",
                 "target_present": True,
                 "target_index": 1,
                 "answer_index": answer_index,
@@ -97,6 +97,14 @@ class OfflineEvaluationTest(unittest.TestCase):
             self.assertTrue(result["valid"])
             self.assertIn(result["choice"], (1, 2))
             self.assertEqual(result["input_content_sha256"], content_sha256(content))
+
+    def test_openai_images_request_explicit_high_detail(self):
+        content = OpenAIIdentifier._to_openai_content(
+            None,
+            [np.zeros((24, 24, 3), dtype=np.uint8)],
+        )
+
+        self.assertEqual(content[0]["image_url"]["detail"], IMAGE_DETAIL)
 
 
 if __name__ == "__main__":

@@ -94,7 +94,10 @@ class Scene1LogicTest(unittest.TestCase):
         self.assertEqual(self.task["episode_steps"], 8)
         self.assertEqual(self.task["judge_start_step"], 8)
         self.assertEqual(self.task["judge_interval_steps"], 8)
-        self.assertEqual(self.task["visual_history_mode"], "motion_diffs")
+        self.assertEqual(
+            self.task["visual_history_mode"],
+            "workspace_motion_panels",
+        )
         self.assertFalse(self.task["annotate_candidates"])
 
     def test_choice_form_contains_direct_and_mismatched_candidates(self):

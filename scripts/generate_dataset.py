@@ -16,7 +16,7 @@ sys.path.insert(0, str(BASE_DIR))
 from source.multimodal import (  # noqa: E402
     annotate_candidates,
     get_control_labels,
-    make_candidate_motion_panel,
+    make_workspace_motion_panel,
     make_motion_diff,
     save_rgb,
 )
@@ -55,11 +55,11 @@ def parse_args():
     parser.add_argument(
         "--output",
         type=Path,
-        default=BASE_DIR / "datasets" / "visionrecbench_diverse_v6",
+        default=BASE_DIR / "datasets" / "visionrecbench_diverse_v7",
     )
     parser.add_argument(
         "--dataset-name",
-        default="visionrecbench_diverse_v6",
+        default="visionrecbench_diverse_v7",
     )
     parser.add_argument(
         "--scenario",
@@ -443,11 +443,12 @@ def render_episode(env, task, dataset_root):
         observation_path = image_dir / f"step_{step_index:03d}_observation.png"
         observation = save_rgb(observation, observation_path)
 
-        if evidence_mode == "candidate_motion_panels":
-            evidence = make_candidate_motion_panel(
+        if evidence_mode == "workspace_motion_panels":
+            evidence = make_workspace_motion_panel(
                 previous,
                 observation,
                 num_arms,
+                camera_view=task["camera_view"],
                 annotate=should_annotate,
             )
         elif evidence_mode == "motion_diffs":

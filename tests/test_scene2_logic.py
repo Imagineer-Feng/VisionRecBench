@@ -128,7 +128,10 @@ class Scene2LogicTest(unittest.TestCase):
         self.assertEqual(self.task["episode_steps"], 16)
         self.assertEqual(self.task["judge_start_step"], 16)
         self.assertEqual(self.task["judge_interval_steps"], 16)
-        self.assertEqual(self.task["visual_history_mode"], "motion_diffs")
+        self.assertEqual(
+            self.task["visual_history_mode"],
+            "workspace_motion_panels",
+        )
         self.assertFalse(self.task["annotate_candidates"])
         commands = np.asarray(
             [item["delta"] for item in self.task["command_sequence"]]
