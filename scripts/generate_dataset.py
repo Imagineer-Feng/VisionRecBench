@@ -55,11 +55,11 @@ def parse_args():
     parser.add_argument(
         "--output",
         type=Path,
-        default=BASE_DIR / "datasets" / "visionrecbench_diverse_v5",
+        default=BASE_DIR / "datasets" / "visionrecbench_diverse_v6",
     )
     parser.add_argument(
         "--dataset-name",
-        default="visionrecbench_diverse_v5",
+        default="visionrecbench_diverse_v6",
     )
     parser.add_argument(
         "--scenario",

@@ -160,10 +160,19 @@ def make_motion_diff(
     return annotate_candidates(base, num_candidates) if annotate else base
 
 
-def _resize_image(image, size, nearest=False):
+def _fit_image(image, size, nearest=False):
+    """Fit an RGB image inside a tile without changing its aspect ratio."""
     resampling_class = getattr(Image, "Resampling", Image)
     resampling = resampling_class.NEAREST if nearest else resampling_class.BILINEAR
-    return Image.fromarray(image[:, :, :3], mode="RGB").resize(size, resampling)
+    source = Image.fromarray(image[:, :, :3], mode="RGB")
+    source.thumbnail(size, resampling)
+    tile = Image.new("RGB", size, (12, 18, 24))
+    offset = (
+        (size[0] - source.width) // 2,
+        (size[1] - source.height) // 2,
+    )
+    tile.paste(source, offset)
+    return tile
 
 
 def _candidate_strip(image, candidate_index, num_candidates):
@@ -201,32 +210,54 @@ def make_candidate_motion_panel(
     num_candidates,
     annotate=True,
 ):
+    """Lay out candidate rows and temporal columns without distorting images."""
     del annotate
     previous = np.asarray(previous_image[:, :, :3], dtype=np.uint8)
     current = np.asarray(current_image[:, :, :3], dtype=np.uint8)
     if previous.shape != current.shape:
         return current_image
+    if num_candidates < 1:
+        raise ValueError("num_candidates must be positive")
 
     height, width = current.shape[:2]
     row_label_width = max(96, width // 10)
     label_height = max(32, height // 28)
     header_height = label_height * 2
-    tile_width = width // num_candidates
-    tile_height = max(1, (height - header_height) // 3)
-    panel_height = header_height + tile_height * 3
+    column_labels = ("BEFORE", "AFTER", "SIGNED CHANGE")
+    column_count = len(column_labels)
+    tile_width = max(1, width // column_count)
+    candidate_source_width = max(1.0, width / num_candidates)
+    tile_height = max(
+        1,
+        int(round(tile_width * height / candidate_source_width)),
+    )
+    panel_width = row_label_width + tile_width * column_count
+    panel_height = header_height + tile_height * num_candidates
 
     panel = Image.new(
         "RGB",
-        (row_label_width + tile_width * num_candidates, panel_height),
+        (panel_width, panel_height),
         (12, 18, 24),
     )
     draw = ImageDraw.Draw(panel)
 
-    row_labels = ["BEFORE", "AFTER", "SIGNED CHANGE"]
-    for candidate_index in range(1, num_candidates + 1):
-        x = row_label_width + (candidate_index - 1) * tile_width
+    for column_index, label in enumerate(column_labels):
+        x = row_label_width + column_index * tile_width
         draw.text(
             (x + 8, label_height + max(6, label_height // 4)),
+            label,
+            fill=(255, 255, 255),
+        )
+        draw.line(
+            [(x, label_height), (x, panel_height)],
+            fill=(255, 255, 255),
+            width=1,
+        )
+
+    for candidate_index in range(1, num_candidates + 1):
+        y = header_height + (candidate_index - 1) * tile_height
+        draw.text(
+            (8, y + max(6, tile_height // 2 - 6)),
             f"candidate {candidate_index}",
             fill=(255, 255, 255),
         )
@@ -234,32 +265,19 @@ def make_candidate_motion_panel(
         previous_crop = _candidate_strip(previous, candidate_index, num_candidates)
         current_crop = _candidate_strip(current, candidate_index, num_candidates)
         change_crop = _signed_change_image(previous_crop, current_crop)
-        crops = [previous_crop, current_crop, change_crop]
+        crops = (previous_crop, current_crop, change_crop)
 
-        for row_index, crop in enumerate(crops):
-            y = header_height + row_index * tile_height
-            tile = _resize_image(
+        for column_index, crop in enumerate(crops):
+            x = row_label_width + column_index * tile_width
+            tile = _fit_image(
                 crop,
                 (tile_width, tile_height),
-                nearest=row_index == 2,
+                nearest=column_index == 2,
             )
             panel.paste(tile, (x, y))
 
         draw.line(
-            [(x, label_height), (x, panel_height)],
-            fill=(255, 255, 255),
-            width=1,
-        )
-
-    for row_index, label in enumerate(row_labels):
-        y = header_height + row_index * tile_height
-        draw.text(
-            (8, y + max(6, tile_height // 2 - 6)),
-            label,
-            fill=(255, 255, 255),
-        )
-        draw.line(
-            [(0, y), (panel.size[0], y)],
+            [(0, y), (panel_width, y)],
             fill=(255, 255, 255),
             width=1,
         )

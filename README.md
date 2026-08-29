@@ -108,8 +108,8 @@ Run generation with Isaac Sim's Python:
 
 ```shell
 $ISAACSIM_ROOT/python.sh scripts/generate_dataset.py \
-  --output datasets/visionrecbench_diverse_v5 \
-  --dataset-name visionrecbench_diverse_v5 \
+  --output datasets/visionrecbench_diverse_v6 \
+  --dataset-name visionrecbench_diverse_v6 \
   --episodes-per-cell 144 \
   --level 1 2 3 \
   --test-type choice judgment \
@@ -125,6 +125,8 @@ Robot appearance rotates among three official Isaac Sim articulations: Franka Pa
 
 Background, robot model, and camera view are nuisance variables, not experimental factors. Their 3 × 3 × 2 = 18 Cartesian combinations are exactly balanced inside every scene × level × test-type unit and every answer condition. At the default 144 episodes, every combination occurs in four nuisance pairs—eight episodes total, four under each answer condition.
 
+The `visionrecbench_diverse_v6` evidence panel places candidate arms in rows and `BEFORE`, `AFTER`, and `SIGNED CHANGE` views in columns. Every crop is resized with its original aspect ratio preserved; padding is used when necessary, so the temporal evidence never stretches or compresses robot geometry.
+
 Render one initial-observation preview for each of the 18 nuisance combinations before generating the full dataset:
 
 ```shell
@@ -138,7 +140,7 @@ Each record stores its `test_type`, `arm_type`, `camera_view`, `environment_temp
 ## 3. Validate the dataset
 
 ```shell
-python3 scripts/validate_dataset.py datasets/visionrecbench_diverse_v5
+python3 scripts/validate_dataset.py datasets/visionrecbench_diverse_v6
 ```
 
 Validation checks record structure, images, checksums, episode uniqueness, per-scene/per-level/per-test-type balance, exact background × robot × camera balance, and strict nuisance-pair equality across conditions, levels, and test types. `--skip-checksums` provides a faster structural check.
@@ -149,7 +151,7 @@ No Isaac Sim process is started during evaluation:
 
 ```shell
 python3 scripts/evaluate_dataset.py \
-  --dataset datasets/visionrecbench_diverse_v5 \
+  --dataset datasets/visionrecbench_diverse_v6 \
   --model gpt-4o \
   --level 1 2 3 \
   --test-type choice judgment \
@@ -170,8 +172,8 @@ Each result records the frozen dataset hash, exact multimodal-input hash, episod
 
 ```shell
 python3 scripts/summarize_offline_results.py \
-  results/offline/visionrecbench_diverse_v5 \
-  --output results/offline/visionrecbench_diverse_v5/summary.json
+  results/offline/visionrecbench_diverse_v6 \
+  --output results/offline/visionrecbench_diverse_v6/summary.json
 ```
 
 The summary reports accuracy and invalid-response rate per model, scene, difficulty, and test type. Judgment groups also report self/non-self recall, balanced accuracy, and self-attribution rate; choice groups report position recall and prediction distributions. When complete paired results are available, confidence intervals use nuisance-pair cluster bootstrap rather than incorrectly treating the two matched episodes as independent.
@@ -180,5 +182,5 @@ The summary reports accuracy and invalid-response rate per model, scene, difficu
 
 - Render quality is fixed in `source/render_config.py`.
 - Prompt text is fixed in `source/prompts.py` and is shared across all 18 scene/level/test-type combinations.
-- Existing legacy datasets and results are not modified. In particular, `visionrecbench_robust_v1`, `visionrecbench_robust_v3`, and `visionrecbench_factorial_v4` represent earlier experimental designs and should not be combined with `visionrecbench_diverse_v5`.
+- Existing legacy datasets and results are not modified. In particular, `visionrecbench_robust_v1`, `visionrecbench_robust_v3`, `visionrecbench_factorial_v4`, and `visionrecbench_diverse_v5` represent earlier experimental designs or evidence layouts and should not be combined with `visionrecbench_diverse_v6`.
 - A change to scene physics, sampling, evidence construction, or prompts should produce a newly named frozen dataset rather than overwriting an existing one.
