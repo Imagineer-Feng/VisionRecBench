@@ -60,6 +60,7 @@ def main():
             row["dataset_name"],
             row["dataset_content_sha256"],
             row["model"],
+            row.get("evaluation_protocol_version", "legacy_unspecified"),
             int(row["difficulty_level"]),
             row["scenario"],
             row.get("test_type", "legacy"),
@@ -68,7 +69,15 @@ def main():
 
     summaries = []
     for group_index, (key, group_rows) in enumerate(sorted(groups.items())):
-        dataset_name, dataset_hash, model, level, scenario, test_type = key
+        (
+            dataset_name,
+            dataset_hash,
+            model,
+            protocol_version,
+            level,
+            scenario,
+            test_type,
+        ) = key
         metrics = summarize_result_group(
             group_rows,
             bootstrap_samples=args.bootstrap_samples,
@@ -79,6 +88,7 @@ def main():
                 "dataset_name": dataset_name,
                 "dataset_content_sha256": dataset_hash,
                 "model": model,
+                "evaluation_protocol_version": protocol_version,
                 "difficulty_level": level,
                 "scenario": scenario,
                 "test_type": test_type,
@@ -92,6 +102,7 @@ def main():
             summary["dataset_name"],
             summary["dataset_content_sha256"],
             summary["model"],
+            summary["evaluation_protocol_version"],
             summary["difficulty_level"],
             summary["test_type"],
         )
@@ -105,8 +116,9 @@ def main():
             "dataset_name": key[0],
             "dataset_content_sha256": key[1],
             "model": key[2],
-            "difficulty_level": key[3],
-            "test_type": key[4],
+            "evaluation_protocol_version": key[3],
+            "difficulty_level": key[4],
+            "test_type": key[5],
             "scene_macro_score": round(sum(values) / len(values), 6),
             "scenes": len(values),
         }

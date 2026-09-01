@@ -153,20 +153,33 @@ No Isaac Sim process is started during evaluation:
 python3 scripts/evaluate_dataset.py \
   --dataset datasets/visionrecbench_diverse_v7 \
   --model gpt-4o \
+  --decoding-profile compatible \
   --level 1 2 3 \
   --test-type choice judgment \
   --resume
 ```
 
-Omit `--level` or `--test-type` to evaluate all values of that variable. Use `--scenario` to select scenes, `--limit` for a smoke test, or `--model random` for an API-free baseline. API images explicitly request `detail: high`; each non-random result records this setting.
+Omit `--level` or `--test-type` to evaluate all values of that variable. Use `--scenario` to select scenes, `--limit` for a smoke test, or `--model random` for an API-free baseline. The default `eval_v2_compatible` protocol requests `max_completion_tokens: 256` and image `detail: high`, but deliberately omits `temperature` because it is not accepted by every reasoning model or OpenAI-compatible provider. This common-denominator profile should be used for the primary cross-model comparison.
+
+For a model that explicitly supports temperature, an optional sensitivity run can request deterministic decoding:
+
+```shell
+python3 scripts/evaluate_dataset.py \
+  --dataset datasets/visionrecbench_diverse_v7 \
+  --model gpt-4o \
+  --decoding-profile temperature_zero \
+  --resume
+```
+
+This writes to the separate `eval_v2_temperature_zero` protocol directory and must not be merged with the compatible-profile results. The evaluator never catches a parameter error and silently retries with a different request. Each non-random result records the selected profile and exact request parameters together with the response model, response ID, backend fingerprint, finish reason, service tier, and token usage. API reproducibility remains best-effort, so the recorded response metadata is part of the experimental provenance.
 
 Results are written to:
 
 ```text
-results/offline/<dataset>/difficulty_level<level>/<test_type>/<model>/<scenario>/<episode>.json
+results/offline/<dataset>/difficulty_level<level>/<test_type>/<model>/<evaluation_protocol>/<scenario>/<episode>.json
 ```
 
-Each result records the frozen dataset hash, exact multimodal-input hash, episode signature, nuisance-pair identity, difficulty, raw response, parsed choice, label, and correctness. The evaluator requires both the new difficulty-level schema and strict nuisance-pair metadata; legacy or unpaired datasets remain readable by the validator but are not silently mixed into new experiments.
+Each result records the frozen dataset hash, exact multimodal-input hash, episode signature, nuisance-pair identity, difficulty, generation protocol, raw response, parsed choice, label, and correctness. Evaluation protocols use separate directories, and the summarizer groups them separately, so legacy results generated with implicit API defaults cannot be mixed with `eval_v2`. The evaluator requires both the new difficulty-level schema and strict nuisance-pair metadata; legacy or unpaired datasets remain readable by the validator but are not silently mixed into new experiments.
 
 ## 5. Summarize results
 

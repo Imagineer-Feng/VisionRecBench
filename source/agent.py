@@ -17,6 +17,40 @@ SYSTEM_MESSAGE = (
     "motor-command trace and choose the requested answer option."
 )
 IMAGE_DETAIL = "high"
+EVALUATION_PROTOCOL_BASE = "eval_v2"
+DEFAULT_DECODING_PROFILE = "compatible"
+DECODING_PROFILES = {
+    # Common denominator for cross-provider OpenAI-compatible endpoints.
+    "compatible": {
+        "max_completion_tokens": 256,
+    },
+    # Optional sensitivity profile for models that explicitly support it.
+    "temperature_zero": {
+        "temperature": 0.0,
+        "max_completion_tokens": 256,
+    },
+}
+DECODING_PROFILE_IDS = tuple(DECODING_PROFILES)
+
+
+def generation_parameters_for_profile(profile):
+    try:
+        return dict(DECODING_PROFILES[profile])
+    except KeyError as exc:
+        raise ValueError(f"Unsupported decoding profile: {profile!r}") from exc
+
+
+def evaluation_protocol_version(profile):
+    generation_parameters_for_profile(profile)
+    return f"{EVALUATION_PROTOCOL_BASE}_{profile}"
+
+
+EVALUATION_PROTOCOL_VERSION = evaluation_protocol_version(
+    DEFAULT_DECODING_PROFILE
+)
+OPENAI_GENERATION_PARAMETERS = generation_parameters_for_profile(
+    DEFAULT_DECODING_PROFILE
+)
 
 
 def image_to_data_url(image):
@@ -36,7 +70,7 @@ def parse_choice(text):
 
     normalized = re.sub(r"[*_`#]", "", text)
     patterns = [
-        r"Choice\s*:?\s*\[?\s*(\d+)\s*\]?",
+        r"Choice\s*:?\s*\[?\s*(?:Option\s*)?(\d+)\s*\]?",
         r"candidate\s+arm\s+(\d+)",
         r"candidate\s+(\d+)",
     ]
@@ -53,20 +87,49 @@ def summarize_content(content_items):
     )
 
 
+def is_retryable_api_error(error):
+    status_code = getattr(error, "status_code", None)
+    if status_code is None:
+        response = getattr(error, "response", None)
+        status_code = getattr(response, "status_code", None)
+    if status_code is None:
+        return True
+    return status_code in {408, 409, 429} or status_code >= 500
+
+
 class IdentifierBase:
-    def __init__(self, name, log_file=None):
+    def __init__(
+        self,
+        name,
+        log_file=None,
+        decoding_profile=DEFAULT_DECODING_PROFILE,
+    ):
         self.name = name
         self.log_file = log_file
+        self.decoding_profile = decoding_profile
+        self.evaluation_protocol_version = evaluation_protocol_version(
+            decoding_profile
+        )
+        self.generation_parameters = None
 
     def identify(self, content_items, num_candidates):
         self._log_prompt(content_items)
-        text = self._generate(content_items, num_candidates).strip()
+        text, response_metadata = self._generate(
+            content_items,
+            num_candidates,
+        )
+        text = text.strip()
         choice = parse_choice(text)
         valid = 1 <= choice <= num_candidates
         if not valid:
             choice = -2 if choice > 0 else -1
 
-        reply = Identification(text=text, choice=choice, valid=valid)
+        reply = Identification(
+            text=text,
+            choice=choice,
+            valid=valid,
+            response_metadata=response_metadata,
+        )
         self._log_response(reply)
         return reply
 
@@ -89,17 +152,26 @@ class IdentifierBase:
 
 
 class RandomIdentifier(IdentifierBase):
-    def __init__(self, log_file=None):
-        super().__init__("random", log_file)
+    def __init__(
+        self,
+        log_file=None,
+        decoding_profile=DEFAULT_DECODING_PROFILE,
+    ):
+        super().__init__("random", log_file, decoding_profile)
 
     def _generate(self, content_items, num_candidates):
         choice = random.randint(1, num_candidates)
-        return f"Thought: random baseline\nChoice: [{choice}]"
+        return f"Thought: random baseline\nChoice: [{choice}]", {}
 
 
 class OpenAIIdentifier(IdentifierBase):
-    def __init__(self, model, log_file=None):
-        super().__init__(model, log_file)
+    def __init__(
+        self,
+        model,
+        log_file=None,
+        decoding_profile=DEFAULT_DECODING_PROFILE,
+    ):
+        super().__init__(model, log_file, decoding_profile)
         api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY")
         if not api_key:
             raise RuntimeError(
@@ -117,6 +189,9 @@ class OpenAIIdentifier(IdentifierBase):
 
         self.model = model
         self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.generation_parameters = generation_parameters_for_profile(
+            decoding_profile
+        )
 
     def _generate(self, content_items, num_candidates):
         messages = [
@@ -129,9 +204,34 @@ class OpenAIIdentifier(IdentifierBase):
                 completion = self.client.chat.completions.create(
                     model=self.model,
                     messages=messages,
+                    **self.generation_parameters,
                 )
-                return completion.choices[0].message.content
+                choice = completion.choices[0]
+                usage = getattr(completion, "usage", None)
+                if hasattr(usage, "model_dump"):
+                    usage = usage.model_dump(mode="json")
+                elif hasattr(usage, "dict"):
+                    usage = usage.dict()
+                return (choice.message.content or ""), {
+                    "response_id": getattr(completion, "id", None),
+                    "response_model": getattr(completion, "model", None),
+                    "response_created": getattr(completion, "created", None),
+                    "system_fingerprint": getattr(
+                        completion,
+                        "system_fingerprint",
+                        None,
+                    ),
+                    "service_tier": getattr(completion, "service_tier", None),
+                    "finish_reason": getattr(choice, "finish_reason", None),
+                    "token_usage": usage,
+                }
             except Exception as exc:
+                if not is_retryable_api_error(exc):
+                    raise RuntimeError(
+                        "Non-retryable API request error. The evaluator did "
+                        "not alter the decoding profile or retry with different "
+                        "generation parameters."
+                    ) from exc
                 print("Exception:", exc)
                 time.sleep(5)
 
@@ -157,7 +257,11 @@ class OpenAIIdentifier(IdentifierBase):
         return payload
 
 
-def create_identifier(model, log_file=None):
+def create_identifier(
+    model,
+    log_file=None,
+    decoding_profile=DEFAULT_DECODING_PROFILE,
+):
     if model == "random":
-        return RandomIdentifier(log_file)
-    return OpenAIIdentifier(model, log_file)
+        return RandomIdentifier(log_file, decoding_profile)
+    return OpenAIIdentifier(model, log_file, decoding_profile)

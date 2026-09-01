@@ -22,7 +22,13 @@ from source.multimodal import (  # noqa: E402
     build_prompts,
     get_control_labels,
 )
-from source.agent import IMAGE_DETAIL, create_identifier  # noqa: E402
+from source.agent import (  # noqa: E402
+    DECODING_PROFILE_IDS,
+    DEFAULT_DECODING_PROFILE,
+    EVALUATION_PROTOCOL_VERSION,
+    IMAGE_DETAIL,
+    create_identifier,
+)
 from source.dataset_io import (  # noqa: E402
     DATASET_SCHEMA_VERSION,
     atomic_write_json,
@@ -42,6 +48,16 @@ def parse_args():
     )
     parser.add_argument("--dataset", type=Path, required=True)
     parser.add_argument("--model", required=True)
+    parser.add_argument(
+        "--decoding-profile",
+        choices=DECODING_PROFILE_IDS,
+        default=DEFAULT_DECODING_PROFILE,
+        help=(
+            "Generation-parameter protocol. 'compatible' omits temperature "
+            "for cross-model support; 'temperature_zero' is only for models "
+            "that explicitly accept temperature."
+        ),
+    )
     parser.add_argument(
         "--level",
         type=int,
@@ -154,7 +170,13 @@ def build_episode_content(record, max_image_history, dataset_root):
     )
 
 
-def result_path(output_root, metadata, model, record):
+def result_path(
+    output_root,
+    metadata,
+    model,
+    record,
+    protocol_version=EVALUATION_PROTOCOL_VERSION,
+):
     model_dir = model.replace("/", "-")
     dataset_dir = metadata["dataset_name"].replace("/", "-")
     return (
@@ -163,6 +185,7 @@ def result_path(output_root, metadata, model, record):
         / f"difficulty_level{record['difficulty_level']}"
         / record["test_type"]
         / model_dir
+        / protocol_version
         / record["scenario"]
         / f"{record['episode_id']}.json"
     )
@@ -181,6 +204,7 @@ def evaluate_one(
         len(record["answer_options"]),
     )
     correct = identification.choice == int(record["answer_index"])
+    response_metadata = identification.response_metadata
     return {
         "schema_version": DATASET_SCHEMA_VERSION,
         "dataset_name": metadata["dataset_name"],
@@ -191,6 +215,9 @@ def evaluate_one(
         "scene": record["scene"],
         "seed": record["seed"],
         "model": model,
+        "evaluation_protocol_version": identifier.evaluation_protocol_version,
+        "decoding_profile": identifier.decoding_profile,
+        "generation_parameters": identifier.generation_parameters,
         "api_endpoint": sanitized_api_endpoint(model),
         "image_detail": IMAGE_DETAIL if model != "random" else None,
         "difficulty_level": int(record["difficulty_level"]),
@@ -213,6 +240,13 @@ def evaluate_one(
         "valid": identification.valid,
         "correct": correct,
         "response_text": identification.text,
+        "response_id": response_metadata.get("response_id"),
+        "response_model": response_metadata.get("response_model"),
+        "response_created": response_metadata.get("response_created"),
+        "system_fingerprint": response_metadata.get("system_fingerprint"),
+        "service_tier": response_metadata.get("service_tier"),
+        "finish_reason": response_metadata.get("finish_reason"),
+        "token_usage": response_metadata.get("token_usage"),
         "bad_response": 0 if identification.valid else 1,
     }
 
@@ -259,7 +293,10 @@ def main():
         rows = rows[: args.limit]
 
     random.seed(args.random_seed)
-    identifier = create_identifier(args.model)
+    identifier = create_identifier(
+        args.model,
+        decoding_profile=args.decoding_profile,
+    )
     outcomes = Counter()
     total = len(rows)
     current = 0
@@ -278,6 +315,7 @@ def main():
             metadata,
             args.model,
             record,
+            protocol_version=identifier.evaluation_protocol_version,
         )
         if output_path.is_file():
             if not args.resume:
@@ -290,6 +328,13 @@ def main():
                 "episode_id": record["episode_id"],
                 "episode_signature": record["episode_signature"],
                 "model": args.model,
+                "evaluation_protocol_version": (
+                    identifier.evaluation_protocol_version
+                ),
+                "decoding_profile": identifier.decoding_profile,
+                "generation_parameters": identifier.generation_parameters,
+                "api_endpoint": sanitized_api_endpoint(args.model),
+                "image_detail": IMAGE_DETAIL if args.model != "random" else None,
                 "difficulty_level": level,
                 "test_type": record["test_type"],
                 "nuisance_pair_id": record.get("nuisance_pair_id"),

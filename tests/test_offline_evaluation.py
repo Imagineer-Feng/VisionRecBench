@@ -2,6 +2,7 @@ import random
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 from PIL import Image
@@ -10,8 +11,20 @@ from scripts.evaluate_dataset import (
     build_episode_content,
     content_sha256,
     evaluate_one,
+    result_path,
 )
-from source.agent import IMAGE_DETAIL, OpenAIIdentifier, RandomIdentifier
+from source.agent import (
+    DEFAULT_DECODING_PROFILE,
+    EVALUATION_PROTOCOL_VERSION,
+    IMAGE_DETAIL,
+    OPENAI_GENERATION_PARAMETERS,
+    OpenAIIdentifier,
+    RandomIdentifier,
+    evaluation_protocol_version,
+    generation_parameters_for_profile,
+    is_retryable_api_error,
+    parse_choice,
+)
 from source.multimodal import get_control_labels
 from source.preprocess import construct
 from source.task_logic import configure_binary_answers
@@ -97,6 +110,15 @@ class OfflineEvaluationTest(unittest.TestCase):
             self.assertTrue(result["valid"])
             self.assertIn(result["choice"], (1, 2))
             self.assertEqual(result["input_content_sha256"], content_sha256(content))
+            self.assertEqual(
+                result["evaluation_protocol_version"],
+                EVALUATION_PROTOCOL_VERSION,
+            )
+            self.assertIsNone(result["generation_parameters"])
+            self.assertEqual(
+                result["decoding_profile"],
+                DEFAULT_DECODING_PROFILE,
+            )
 
     def test_openai_images_request_explicit_high_detail(self):
         content = OpenAIIdentifier._to_openai_content(
@@ -105,6 +127,92 @@ class OfflineEvaluationTest(unittest.TestCase):
         )
 
         self.assertEqual(content[0]["image_url"]["detail"], IMAGE_DETAIL)
+
+    def test_option_wording_is_parsed_as_requested_by_prompt(self):
+        self.assertEqual(parse_choice("Choice: [Option 1]"), 1)
+        self.assertEqual(parse_choice("Choice: [2]"), 2)
+
+    def test_compatible_request_and_response_metadata_are_frozen(self):
+        captured = {}
+
+        class FakeCompletions:
+            def create(self, **kwargs):
+                captured.update(kwargs)
+                return SimpleNamespace(
+                    id="chatcmpl-test",
+                    model="gpt-4o-2024-11-20",
+                    created=123,
+                    system_fingerprint="fp_test",
+                    service_tier="default",
+                    usage=SimpleNamespace(
+                        model_dump=lambda mode: {
+                            "prompt_tokens": 10,
+                            "completion_tokens": 5,
+                            "total_tokens": 15,
+                        }
+                    ),
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(content="Choice: [1]"),
+                            finish_reason="stop",
+                        )
+                    ],
+                )
+
+        identifier = object.__new__(OpenAIIdentifier)
+        identifier.model = "gpt-4o"
+        identifier.generation_parameters = dict(OPENAI_GENERATION_PARAMETERS)
+        identifier.client = SimpleNamespace(
+            chat=SimpleNamespace(completions=FakeCompletions())
+        )
+
+        text, metadata = identifier._generate([], 2)
+
+        self.assertEqual(text, "Choice: [1]")
+        self.assertNotIn("temperature", captured)
+        self.assertEqual(captured["max_completion_tokens"], 256)
+        self.assertEqual(metadata["response_model"], "gpt-4o-2024-11-20")
+        self.assertEqual(metadata["system_fingerprint"], "fp_test")
+        self.assertEqual(metadata["token_usage"]["total_tokens"], 15)
+
+    def test_temperature_zero_is_an_explicit_separate_protocol(self):
+        parameters = generation_parameters_for_profile("temperature_zero")
+
+        self.assertEqual(parameters["temperature"], 0.0)
+        self.assertEqual(parameters["max_completion_tokens"], 256)
+        self.assertNotEqual(
+            evaluation_protocol_version("temperature_zero"),
+            EVALUATION_PROTOCOL_VERSION,
+        )
+
+    def test_parameter_errors_fail_without_profile_fallback(self):
+        self.assertFalse(
+            is_retryable_api_error(SimpleNamespace(status_code=400))
+        )
+        self.assertFalse(
+            is_retryable_api_error(SimpleNamespace(status_code=401))
+        )
+        self.assertTrue(
+            is_retryable_api_error(SimpleNamespace(status_code=429))
+        )
+        self.assertTrue(
+            is_retryable_api_error(SimpleNamespace(status_code=503))
+        )
+
+    def test_protocol_version_isolated_in_result_path(self):
+        path = result_path(
+            Path("results"),
+            {"dataset_name": "dataset"},
+            "gpt-4o",
+            {
+                "difficulty_level": 1,
+                "test_type": "choice",
+                "scenario": "scene1",
+                "episode_id": "episode-1",
+            },
+        )
+
+        self.assertIn(EVALUATION_PROTOCOL_VERSION, path.parts)
 
 
 if __name__ == "__main__":

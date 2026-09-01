@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -6,6 +6,7 @@ class Identification:
     text: str = ""
     choice: int = -1  # -1: cannot parse; -2: out of range
     valid: bool = False
+    response_metadata: dict = field(default_factory=dict)
 
 
 def candidate_options(num_arms):
