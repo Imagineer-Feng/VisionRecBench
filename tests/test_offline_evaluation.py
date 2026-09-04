@@ -175,23 +175,69 @@ class OfflineEvaluationTest(unittest.TestCase):
 
         self.assertEqual(text, "Choice: [1]")
         self.assertNotIn("temperature", captured)
-        self.assertEqual(captured["max_completion_tokens"], 4096)
+        self.assertEqual(captured["max_completion_tokens"], 8192)
         self.assertEqual(metadata["response_model"], "gpt-4o-2024-11-20")
         self.assertEqual(metadata["system_fingerprint"], "fp_test")
         self.assertEqual(metadata["token_usage"]["total_tokens"], 15)
+
+    def test_follow_up_replays_original_input_and_frozen_answer(self):
+        captured = {}
+
+        class FakeCompletions:
+            def create(self, **kwargs):
+                captured.update(kwargs)
+                return SimpleNamespace(
+                    id="chatcmpl-audit",
+                    model="gpt-4o-2024-11-20",
+                    created=456,
+                    system_fingerprint="fp_audit",
+                    service_tier="default",
+                    usage=None,
+                    choices=[
+                        SimpleNamespace(
+                            message=SimpleNamespace(content='{"ok":true}'),
+                            finish_reason="stop",
+                        )
+                    ],
+                )
+
+        identifier = object.__new__(OpenAIIdentifier)
+        identifier.model = "gpt-4o"
+        identifier.generation_parameters = dict(OPENAI_GENERATION_PARAMETERS)
+        identifier.client = SimpleNamespace(
+            chat=SimpleNamespace(completions=FakeCompletions())
+        )
+
+        text, _ = identifier.generate_follow_up(
+            ["original", np.zeros((4, 4, 3), dtype=np.uint8)],
+            "Choice: [2]",
+            "return audit json",
+            "audit system",
+            generation_parameters={"max_completion_tokens": 123},
+        )
+
+        self.assertEqual(text, '{"ok":true}')
+        self.assertEqual(captured["max_completion_tokens"], 123)
+        self.assertEqual(
+            [message["role"] for message in captured["messages"]],
+            ["system", "user", "assistant", "user"],
+        )
+        self.assertEqual(captured["messages"][0]["content"], "audit system")
+        self.assertEqual(captured["messages"][2]["content"], "Choice: [2]")
+        self.assertEqual(captured["messages"][3]["content"], "return audit json")
 
     def test_temperature_zero_is_an_explicit_separate_protocol(self):
         parameters = generation_parameters_for_profile("temperature_zero")
 
         self.assertEqual(parameters["temperature"], 0.0)
-        self.assertEqual(parameters["max_completion_tokens"], 4096)
+        self.assertEqual(parameters["max_completion_tokens"], 8192)
         self.assertNotEqual(
             evaluation_protocol_version("temperature_zero"),
             EVALUATION_PROTOCOL_VERSION,
         )
 
     def test_default_protocol_is_versioned_for_long_choice_first_responses(self):
-        self.assertEqual(EVALUATION_PROTOCOL_VERSION, "eval_v3_compatible")
+        self.assertEqual(EVALUATION_PROTOCOL_VERSION, "eval_v4_compatible")
 
     def test_parameter_errors_fail_without_profile_fallback(self):
         self.assertFalse(

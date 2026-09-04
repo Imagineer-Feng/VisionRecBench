@@ -53,6 +53,8 @@ VisionRecBench/
     prompts.py              # single universal prompt template
     render_config.py        # fixed rendering settings
     task_logic.py           # command and mapping transformations
+    logic_audit.py          # strict scene-specific structured audit and scoring
+    logic_audit_metrics.py  # logic-adjusted accuracy calculation
   tasks/
     arm_repo.json
     distractor_repo.json
@@ -62,7 +64,9 @@ VisionRecBench/
     render_environment_previews.py
     validate_dataset.py
     evaluate_dataset.py
+    evaluate_logic_audit.py
     summarize_offline_results.py
+    summarize_logic_audit_results.py
     setup_env.example.sh
   tests/
 ```
@@ -159,7 +163,7 @@ python3 scripts/evaluate_dataset.py \
   --resume
 ```
 
-Omit `--level` or `--test-type` to evaluate all values of that variable. Use `--scenario` to select scenes, `--limit` for a smoke test, or `--model random` for an API-free baseline. The default `eval_v3_compatible` protocol requests `max_completion_tokens: 4096` and image `detail: high`, but deliberately omits `temperature` because it is not accepted by every reasoning model or OpenAI-compatible provider. Responses must put `Choice: [Option Number]` on the first line before a brief `Thought:` explanation. The larger shared limit leaves room for providers that count hidden reasoning tokens against the completion budget, while the choice-first format preserves the parseable answer if a later explanation is truncated. This common-denominator profile should be used for the primary cross-model comparison.
+Omit `--level` or `--test-type` to evaluate all values of that variable. Use `--scenario` to select scenes, `--limit` for a smoke test, or `--model random` for an API-free baseline. The default `eval_v4_compatible` protocol requests `max_completion_tokens: 8192` and image `detail: high`, but deliberately omits `temperature` because it is not accepted by every reasoning model or OpenAI-compatible provider. Responses must put `Choice: [Option Number]` on the first line before a brief `Thought:` explanation. The larger shared limit leaves room for providers that count hidden reasoning tokens against the completion budget, while the choice-first format preserves the parseable answer if a later explanation is truncated. This common-denominator profile should be used for the primary cross-model comparison.
 
 For a model that explicitly supports temperature, an optional sensitivity run can request deterministic decoding:
 
@@ -171,7 +175,7 @@ python3 scripts/evaluate_dataset.py \
   --resume
 ```
 
-This writes to the separate `eval_v3_temperature_zero` protocol directory and must not be merged with the compatible-profile results. The evaluator never catches a parameter error and silently retries with a different request. Each non-random result records the selected profile and exact request parameters together with the response model, response ID, backend fingerprint, finish reason, service tier, and token usage. API reproducibility remains best-effort, so the recorded response metadata is part of the experimental provenance.
+This writes to the separate `eval_v4_temperature_zero` protocol directory and must not be merged with the compatible-profile results. The evaluator never catches a parameter error and silently retries with a different request. Each non-random result records the selected profile and exact request parameters together with the response model, response ID, backend fingerprint, finish reason, service tier, and token usage. API reproducibility remains best-effort, so the recorded response metadata is part of the experimental provenance.
 
 Results are written to:
 
@@ -179,7 +183,7 @@ Results are written to:
 results/offline/<dataset>/difficulty_level<level>/<test_type>/<model>/<evaluation_protocol>/<scenario>/<episode>.json
 ```
 
-Each result records the frozen dataset hash, exact multimodal-input hash, episode signature, nuisance-pair identity, difficulty, generation protocol, raw response, parsed choice, label, and correctness. Evaluation protocols use separate directories, and the summarizer groups them separately, so legacy results generated with implicit API defaults, `eval_v2`, and `eval_v3` cannot be mixed. The evaluator requires both the new difficulty-level schema and strict nuisance-pair metadata; legacy or unpaired datasets remain readable by the validator but are not silently mixed into new experiments.
+Each result records the frozen dataset hash, exact multimodal-input hash, episode signature, nuisance-pair identity, difficulty, generation protocol, raw response, parsed choice, label, and correctness. Evaluation protocols use separate directories, and the summarizer groups them separately, so legacy results generated with implicit API defaults, `eval_v2`, `eval_v3`, and the current `eval_v4` cannot be mixed. The evaluator requires both the new difficulty-level schema and strict nuisance-pair metadata; legacy or unpaired datasets remain readable by the validator but are not silently mixed into new experiments.
 
 ## 5. Summarize results
 
@@ -190,6 +194,42 @@ python3 scripts/summarize_offline_results.py \
 ```
 
 The summary reports accuracy and invalid-response rate per model, scene, difficulty, and test type. Judgment groups also report self/non-self recall, balanced accuracy, and self-attribution rate; choice groups report position recall and prediction distributions. When complete paired results are available, confidence intervals use nuisance-pair cluster bootstrap rather than incorrectly treating the two matched episodes as independent.
+
+## 6. Audit the logic behind correct answers
+
+After an ordinary evaluation is complete, run the optional logic audit as a separate step. It reads the frozen ordinary results and sends a follow-up only for answers that were initially correct. It never calls the API for initially incorrect or invalid answers.
+
+```shell
+python3 scripts/evaluate_logic_audit.py \
+  --dataset datasets/visionrecbench_diverse_v7 \
+  --base-results results/offline/visionrecbench_diverse_v7 \
+  --model gpt-4o \
+  --audit-max-completion-tokens 8192 \
+  --resume
+```
+
+The audit is deliberately strict and contains no strategy self-report. Scene 1 requires a `match`/`mismatch` decision for every arm at every step. Scene 2 requires every cycle's mapping to be classified relative to cycle 1. Scene 3 requires the exact temporal lag of every visible arm. The program derives the expected structure from the episode's recorded `applied_commands`; an audit passes only when every required item matches. Missing fields, invalid values, or even one incorrect item fail the audit.
+
+This add-on supports only the current default `eval_v4_compatible` ordinary evaluation protocol. It rejects older results instead of mixing prompt protocols. The operational logic-adjusted accuracy is:
+
+```text
+initially correct answers whose structured audit matches exactly
+----------------------------------------------------------------
+                    all ordinary results
+```
+
+Summarize the completed audit with:
+
+```shell
+python3 scripts/summarize_logic_audit_results.py \
+  --dataset datasets/visionrecbench_diverse_v7 \
+  --base-results results/offline/visionrecbench_diverse_v7 \
+  --audit-results results/logic_audit/visionrecbench_diverse_v7 \
+  --model gpt-4o \
+  --output results/logic_audit/visionrecbench_diverse_v7/summary-gpt-4o.json
+```
+
+Until every initially correct result has an audit file, the summarizer reports `logic_adjusted_accuracy` as `null` and provides only `logic_adjusted_accuracy_lower_bound`. This prevents a partial run from being mistaken for the final recalculated accuracy. The label `logical_reasoning` is an operational benchmark label: it means that the correct choice was followed by a completely correct structured audit, not that the model's private internal process has been directly observed.
 
 ## Reproducibility and legacy data
 

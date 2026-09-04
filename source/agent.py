@@ -18,17 +18,17 @@ SYSTEM_MESSAGE = (
     "choice before any explanation."
 )
 IMAGE_DETAIL = "high"
-EVALUATION_PROTOCOL_BASE = "eval_v3"
+EVALUATION_PROTOCOL_BASE = "eval_v4"
 DEFAULT_DECODING_PROFILE = "compatible"
 DECODING_PROFILES = {
     # Common denominator for cross-provider OpenAI-compatible endpoints.
     "compatible": {
-        "max_completion_tokens": 4096,
+        "max_completion_tokens": 8192,
     },
     # Optional sensitivity profile for models that explicitly support it.
     "temperature_zero": {
         "temperature": 0.0,
-        "max_completion_tokens": 4096,
+        "max_completion_tokens": 8192,
     },
 }
 DECODING_PROFILE_IDS = tuple(DECODING_PROFILES)
@@ -200,12 +200,41 @@ class OpenAIIdentifier(IdentifierBase):
             {"role": "user", "content": self._to_openai_content(content_items)},
         ]
 
+        return self._request(messages)
+
+    def generate_follow_up(
+        self,
+        content_items,
+        previous_response,
+        follow_up_prompt,
+        system_message,
+        generation_parameters=None,
+    ):
+        """Continue one completed evaluation with a structured follow-up."""
+        messages = [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": self._to_openai_content(content_items)},
+            {"role": "assistant", "content": previous_response},
+            {"role": "user", "content": follow_up_prompt},
+        ]
+        return self._request(
+            messages,
+            generation_parameters=generation_parameters,
+        )
+
+    def _request(self, messages, generation_parameters=None):
+        parameters = (
+            self.generation_parameters
+            if generation_parameters is None
+            else dict(generation_parameters)
+        )
+
         for _ in range(50):
             try:
                 completion = self.client.chat.completions.create(
                     model=self.model,
                     messages=messages,
-                    **self.generation_parameters,
+                    **parameters,
                 )
                 choice = completion.choices[0]
                 usage = getattr(completion, "usage", None)
