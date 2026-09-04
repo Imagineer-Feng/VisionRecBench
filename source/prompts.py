@@ -13,7 +13,7 @@ PROMPT_SUFFIX = """Available options:
 
 Choose the single option best supported by the complete command and visual evidence. Do not infer the answer from the wording or ordering of the options.
 
-Reply exactly in this format:
-Thought: <brief evidence-based reasoning>
+Reply exactly in this format, with the choice on the first line before any explanation:
 Choice: [Option Number]
+Thought: <brief evidence-based reasoning>
 """

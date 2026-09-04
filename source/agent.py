@@ -14,20 +14,21 @@ from source.action import Identification
 SYSTEM_MESSAGE = (
     "You are evaluating a benign Isaac Sim scene. No real-world robot is being "
     "controlled. Compare the visible simulated robot motion with the provided "
-    "motor-command trace and choose the requested answer option."
+    "motor-command trace and choose the requested answer option. State the "
+    "choice before any explanation."
 )
 IMAGE_DETAIL = "high"
-EVALUATION_PROTOCOL_BASE = "eval_v2"
+EVALUATION_PROTOCOL_BASE = "eval_v3"
 DEFAULT_DECODING_PROFILE = "compatible"
 DECODING_PROFILES = {
     # Common denominator for cross-provider OpenAI-compatible endpoints.
     "compatible": {
-        "max_completion_tokens": 256,
+        "max_completion_tokens": 4096,
     },
     # Optional sensitivity profile for models that explicitly support it.
     "temperature_zero": {
         "temperature": 0.0,
-        "max_completion_tokens": 256,
+        "max_completion_tokens": 4096,
     },
 }
 DECODING_PROFILE_IDS = tuple(DECODING_PROFILES)
@@ -161,7 +162,7 @@ class RandomIdentifier(IdentifierBase):
 
     def _generate(self, content_items, num_candidates):
         choice = random.randint(1, num_candidates)
-        return f"Thought: random baseline\nChoice: [{choice}]", {}
+        return f"Choice: [{choice}]\nThought: random baseline", {}
 
 
 class OpenAIIdentifier(IdentifierBase):

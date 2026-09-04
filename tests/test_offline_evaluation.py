@@ -25,7 +25,7 @@ from source.agent import (
     is_retryable_api_error,
     parse_choice,
 )
-from source.multimodal import get_control_labels
+from source.multimodal import build_prompts, get_control_labels
 from source.preprocess import construct
 from source.task_logic import configure_binary_answers
 
@@ -132,6 +132,11 @@ class OfflineEvaluationTest(unittest.TestCase):
         self.assertEqual(parse_choice("Choice: [Option 1]"), 1)
         self.assertEqual(parse_choice("Choice: [2]"), 2)
 
+    def test_prompt_requests_choice_before_explanation(self):
+        _, suffix = build_prompts(["yes", "no"])
+
+        self.assertLess(suffix.index("Choice:"), suffix.index("Thought:"))
+
     def test_compatible_request_and_response_metadata_are_frozen(self):
         captured = {}
 
@@ -170,7 +175,7 @@ class OfflineEvaluationTest(unittest.TestCase):
 
         self.assertEqual(text, "Choice: [1]")
         self.assertNotIn("temperature", captured)
-        self.assertEqual(captured["max_completion_tokens"], 256)
+        self.assertEqual(captured["max_completion_tokens"], 4096)
         self.assertEqual(metadata["response_model"], "gpt-4o-2024-11-20")
         self.assertEqual(metadata["system_fingerprint"], "fp_test")
         self.assertEqual(metadata["token_usage"]["total_tokens"], 15)
@@ -179,11 +184,14 @@ class OfflineEvaluationTest(unittest.TestCase):
         parameters = generation_parameters_for_profile("temperature_zero")
 
         self.assertEqual(parameters["temperature"], 0.0)
-        self.assertEqual(parameters["max_completion_tokens"], 256)
+        self.assertEqual(parameters["max_completion_tokens"], 4096)
         self.assertNotEqual(
             evaluation_protocol_version("temperature_zero"),
             EVALUATION_PROTOCOL_VERSION,
         )
+
+    def test_default_protocol_is_versioned_for_long_choice_first_responses(self):
+        self.assertEqual(EVALUATION_PROTOCOL_VERSION, "eval_v3_compatible")
 
     def test_parameter_errors_fail_without_profile_fallback(self):
         self.assertFalse(

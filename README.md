@@ -159,7 +159,7 @@ python3 scripts/evaluate_dataset.py \
   --resume
 ```
 
-Omit `--level` or `--test-type` to evaluate all values of that variable. Use `--scenario` to select scenes, `--limit` for a smoke test, or `--model random` for an API-free baseline. The default `eval_v2_compatible` protocol requests `max_completion_tokens: 256` and image `detail: high`, but deliberately omits `temperature` because it is not accepted by every reasoning model or OpenAI-compatible provider. This common-denominator profile should be used for the primary cross-model comparison.
+Omit `--level` or `--test-type` to evaluate all values of that variable. Use `--scenario` to select scenes, `--limit` for a smoke test, or `--model random` for an API-free baseline. The default `eval_v3_compatible` protocol requests `max_completion_tokens: 4096` and image `detail: high`, but deliberately omits `temperature` because it is not accepted by every reasoning model or OpenAI-compatible provider. Responses must put `Choice: [Option Number]` on the first line before a brief `Thought:` explanation. The larger shared limit leaves room for providers that count hidden reasoning tokens against the completion budget, while the choice-first format preserves the parseable answer if a later explanation is truncated. This common-denominator profile should be used for the primary cross-model comparison.
 
 For a model that explicitly supports temperature, an optional sensitivity run can request deterministic decoding:
 
@@ -171,7 +171,7 @@ python3 scripts/evaluate_dataset.py \
   --resume
 ```
 
-This writes to the separate `eval_v2_temperature_zero` protocol directory and must not be merged with the compatible-profile results. The evaluator never catches a parameter error and silently retries with a different request. Each non-random result records the selected profile and exact request parameters together with the response model, response ID, backend fingerprint, finish reason, service tier, and token usage. API reproducibility remains best-effort, so the recorded response metadata is part of the experimental provenance.
+This writes to the separate `eval_v3_temperature_zero` protocol directory and must not be merged with the compatible-profile results. The evaluator never catches a parameter error and silently retries with a different request. Each non-random result records the selected profile and exact request parameters together with the response model, response ID, backend fingerprint, finish reason, service tier, and token usage. API reproducibility remains best-effort, so the recorded response metadata is part of the experimental provenance.
 
 Results are written to:
 
@@ -179,7 +179,7 @@ Results are written to:
 results/offline/<dataset>/difficulty_level<level>/<test_type>/<model>/<evaluation_protocol>/<scenario>/<episode>.json
 ```
 
-Each result records the frozen dataset hash, exact multimodal-input hash, episode signature, nuisance-pair identity, difficulty, generation protocol, raw response, parsed choice, label, and correctness. Evaluation protocols use separate directories, and the summarizer groups them separately, so legacy results generated with implicit API defaults cannot be mixed with `eval_v2`. The evaluator requires both the new difficulty-level schema and strict nuisance-pair metadata; legacy or unpaired datasets remain readable by the validator but are not silently mixed into new experiments.
+Each result records the frozen dataset hash, exact multimodal-input hash, episode signature, nuisance-pair identity, difficulty, generation protocol, raw response, parsed choice, label, and correctness. Evaluation protocols use separate directories, and the summarizer groups them separately, so legacy results generated with implicit API defaults, `eval_v2`, and `eval_v3` cannot be mixed. The evaluator requires both the new difficulty-level schema and strict nuisance-pair metadata; legacy or unpaired datasets remain readable by the validator but are not silently mixed into new experiments.
 
 ## 5. Summarize results
 
@@ -196,4 +196,4 @@ The summary reports accuracy and invalid-response rate per model, scene, difficu
 - Render quality is fixed in `source/render_config.py`.
 - Prompt text is fixed in `source/prompts.py` and is shared across all 18 scene/level/test-type combinations.
 - Existing legacy datasets and results are not modified. In particular, `visionrecbench_robust_v1`, `visionrecbench_robust_v3`, `visionrecbench_factorial_v4`, `visionrecbench_diverse_v5`, and `visionrecbench_diverse_v6` represent earlier experimental designs or evidence layouts and should not be combined with `visionrecbench_diverse_v7`.
-- A change to scene physics, sampling, evidence construction, or prompts should produce a newly named frozen dataset rather than overwriting an existing one.
+- A change to scene physics, sampling, or evidence construction should produce a newly named frozen dataset rather than overwriting an existing one. A prompt or decoding change must increment the evaluation protocol version and write to a separate result directory.
