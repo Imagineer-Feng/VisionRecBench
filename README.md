@@ -195,7 +195,52 @@ python3 scripts/summarize_offline_results.py \
 
 The summary reports accuracy and invalid-response rate per model, scene, difficulty, and test type. Judgment groups also report self/non-self recall, balanced accuracy, and self-attribution rate; choice groups report position recall and prediction distributions. When complete paired results are available, confidence intervals use nuisance-pair cluster bootstrap rather than incorrectly treating the two matched episodes as independent.
 
-## 6. Audit the logic behind correct answers
+## 6. Run a resumable single-rater human baseline
+
+The local human-evaluation interface presents the same complete command trace,
+time-ordered evidence panels, final observation, and frozen answer-option order
+used in offline model evaluation. It never displays scene, difficulty, episode
+identity, target labels, correctness, or running accuracy. A deterministic plan
+fixes trial order, separates repeated nuisance pairs where possible, and stores
+every submitted response atomically so an interrupted study can resume safely.
+
+```shell
+python3 scripts/evaluate_human.py \
+  --dataset datasets/visionrecbench_diverse_v7 \
+  --participant-id human-001 \
+  --session-size 36
+```
+
+Open the printed localhost URL in a desktop browser. Select an option with the
+mouse or number keys and press Enter to submit. Stop the server with Ctrl-C;
+submitted trials have already been saved. Continue with the identical filters,
+seed, and session size plus `--resume`:
+
+```shell
+python3 scripts/evaluate_human.py \
+  --dataset datasets/visionrecbench_diverse_v7 \
+  --participant-id human-001 \
+  --session-size 36 \
+  --resume
+```
+
+The frozen plan and per-episode responses are stored under
+`results/human/<dataset>/<participant>/human_eval_v1/`. Use `--limit` for a
+practice or pilot participant ID rather than mixing practice trials into the
+formal participant. Human results use the same metric fields as offline model
+results and can be summarized with:
+
+```shell
+python3 scripts/summarize_offline_results.py \
+  results/human/visionrecbench_diverse_v7/human-001/human_eval_v1/responses \
+  --output results/human/visionrecbench_diverse_v7/human-001/human_eval_v1/summary.json
+```
+
+This protocol estimates a single evaluator's performance, not population-level
+human performance. Keep the browser zoom, display, and viewing conditions fixed,
+take the scheduled breaks, and do not redo submitted trials.
+
+## 7. Audit the logic behind correct answers
 
 After an ordinary evaluation is complete, run the optional logic audit as a separate step. It reads the frozen ordinary results and sends a follow-up only for answers that were initially correct. It never calls the API for initially incorrect or invalid answers.
 
