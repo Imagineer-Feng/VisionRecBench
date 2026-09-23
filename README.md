@@ -1,6 +1,6 @@
-# VisionRecBench: Visual Self-Recognition with Mimic Robot Arms
+# VisuoSelf: Visual Self-Recognition with Mimic Robot Arms
 
-VisionRecBench is an Isaac Sim benchmark for embodied visual self-recognition. It renders frozen robot-arm episodes once, then evaluates every model offline from the same images and motor-command traces. The benchmark no longer provides an online render-and-evaluate path.
+VisuoSelf is an Isaac Sim benchmark for embodied visual self-recognition. It renders frozen robot-arm episodes once, then evaluates every model offline from the same images and motor-command traces. The benchmark no longer provides an online render-and-evaluate path.
 
 The three standard scenes are:
 
@@ -38,7 +38,7 @@ The universal prompt asks the model to use the complete temporal evidence and do
 ## Project layout
 
 ```text
-VisionRecBench/
+VisuoSelf/
   source/
     action.py               # answer-option schema
     agent.py                # offline model and random-baseline adapters
@@ -76,7 +76,7 @@ VisionRecBench/
 Dataset generation requires Isaac Sim and `ISAACSIM_ROOT`. API-backed offline evaluation additionally requires the Python `openai` package and `OPENAI_API_KEY`.
 
 ```shell
-cd VisionRecBench
+cd VisuoSelf
 cp scripts/setup_env.example.sh scripts/setup_env.sh
 # Edit local paths and credentials, then:
 source scripts/setup_env.sh
@@ -112,8 +112,8 @@ Run generation with Isaac Sim's Python:
 
 ```shell
 $ISAACSIM_ROOT/python.sh scripts/generate_dataset.py \
-  --output datasets/visionrecbench_diverse_v7 \
-  --dataset-name visionrecbench_diverse_v7 \
+  --output datasets/visuoself_diverse_v7 \
+  --dataset-name visuoself_diverse_v7 \
   --episodes-per-cell 144 \
   --level 1 2 3 \
   --test-type choice judgment \
@@ -129,7 +129,7 @@ Robot appearance rotates among three official Isaac Sim articulations: Franka Pa
 
 Background, robot model, and camera view are nuisance variables, not experimental factors. Their 3 × 3 × 2 = 18 Cartesian combinations are exactly balanced inside every scene × level × test-type unit and every answer condition. At the default 144 episodes, every combination occurs in four nuisance pairs—eight episodes total, four under each answer condition.
 
-The `visionrecbench_diverse_v7` evidence panel places one complete shared robot workspace in `BEFORE`, `AFTER`, and `SIGNED CHANGE` columns. It never divides the image into candidate halves: an arm may cross the image center without being clipped or appearing in another candidate's crop. Frontal and overhead views each use a fixed, behavior-independent crop that is shared across paired conditions and difficulty levels. Aspect ratio is preserved, candidate markers are enlarged, and a production panel is 1,536 pixels wide by about 338 pixels high—three 512-pixel vision tiles rather than six repeated candidate-background tiles.
+The `visuoself_diverse_v7` evidence panel places one complete shared robot workspace in `BEFORE`, `AFTER`, and `SIGNED CHANGE` columns. It never divides the image into candidate halves: an arm may cross the image center without being clipped or appearing in another candidate's crop. Frontal and overhead views each use a fixed, behavior-independent crop that is shared across paired conditions and difficulty levels. Aspect ratio is preserved, candidate markers are enlarged, and a production panel is 1,536 pixels wide by about 338 pixels high—three 512-pixel vision tiles rather than six repeated candidate-background tiles.
 
 Render one initial-observation preview for each of the 18 nuisance combinations before generating the full dataset:
 
@@ -144,7 +144,7 @@ Each record stores its `test_type`, `arm_type`, `camera_view`, `environment_temp
 ## 3. Validate the dataset
 
 ```shell
-python3 scripts/validate_dataset.py datasets/visionrecbench_diverse_v7
+python3 scripts/validate_dataset.py datasets/visuoself_diverse_v7
 ```
 
 Validation checks record structure, images, checksums, episode uniqueness, per-scene/per-level/per-test-type balance, exact background × robot × camera balance, and strict nuisance-pair equality across conditions, levels, and test types. `--skip-checksums` provides a faster structural check.
@@ -155,7 +155,7 @@ No Isaac Sim process is started during evaluation:
 
 ```shell
 python3 scripts/evaluate_dataset.py \
-  --dataset datasets/visionrecbench_diverse_v7 \
+  --dataset datasets/visuoself_diverse_v7 \
   --model gpt-4o \
   --decoding-profile compatible \
   --level 1 2 3 \
@@ -169,7 +169,7 @@ For a model that explicitly supports temperature, an optional sensitivity run ca
 
 ```shell
 python3 scripts/evaluate_dataset.py \
-  --dataset datasets/visionrecbench_diverse_v7 \
+  --dataset datasets/visuoself_diverse_v7 \
   --model gpt-4o \
   --decoding-profile temperature_zero \
   --resume
@@ -189,8 +189,8 @@ Each result records the frozen dataset hash, exact multimodal-input hash, episod
 
 ```shell
 python3 scripts/summarize_offline_results.py \
-  results/offline/visionrecbench_diverse_v7 \
-  --output results/offline/visionrecbench_diverse_v7/summary.json
+  results/offline/visuoself_diverse_v7 \
+  --output results/offline/visuoself_diverse_v7/summary.json
 ```
 
 The summary reports accuracy and invalid-response rate per model, scene, difficulty, and test type. Judgment groups also report self/non-self recall, balanced accuracy, and self-attribution rate; choice groups report position recall and prediction distributions. When complete paired results are available, confidence intervals use nuisance-pair cluster bootstrap rather than incorrectly treating the two matched episodes as independent.
@@ -206,7 +206,7 @@ every submitted response atomically so an interrupted study can resume safely.
 
 ```shell
 python3 scripts/evaluate_human.py \
-  --dataset datasets/visionrecbench_diverse_v7 \
+  --dataset datasets/visuoself_diverse_v7 \
   --participant-id human-001 \
   --session-size 36
 ```
@@ -218,7 +218,7 @@ seed, and session size plus `--resume`:
 
 ```shell
 python3 scripts/evaluate_human.py \
-  --dataset datasets/visionrecbench_diverse_v7 \
+  --dataset datasets/visuoself_diverse_v7 \
   --participant-id human-001 \
   --session-size 36 \
   --resume
@@ -232,8 +232,8 @@ results and can be summarized with:
 
 ```shell
 python3 scripts/summarize_offline_results.py \
-  results/human/visionrecbench_diverse_v7/human-001/human_eval_v1/responses \
-  --output results/human/visionrecbench_diverse_v7/human-001/human_eval_v1/summary.json
+  results/human/visuoself_diverse_v7/human-001/human_eval_v1/responses \
+  --output results/human/visuoself_diverse_v7/human-001/human_eval_v1/summary.json
 ```
 
 This protocol estimates a single evaluator's performance, not population-level
@@ -246,8 +246,8 @@ After an ordinary evaluation is complete, run the optional logic audit as a sepa
 
 ```shell
 python3 scripts/evaluate_logic_audit.py \
-  --dataset datasets/visionrecbench_diverse_v7 \
-  --base-results results/offline/visionrecbench_diverse_v7 \
+  --dataset datasets/visuoself_diverse_v7 \
+  --base-results results/offline/visuoself_diverse_v7 \
   --model gpt-4o \
   --audit-max-completion-tokens 8192 \
   --resume
@@ -267,11 +267,11 @@ Summarize the completed audit with:
 
 ```shell
 python3 scripts/summarize_logic_audit_results.py \
-  --dataset datasets/visionrecbench_diverse_v7 \
-  --base-results results/offline/visionrecbench_diverse_v7 \
-  --audit-results results/logic_audit/visionrecbench_diverse_v7 \
+  --dataset datasets/visuoself_diverse_v7 \
+  --base-results results/offline/visuoself_diverse_v7 \
+  --audit-results results/logic_audit/visuoself_diverse_v7 \
   --model gpt-4o \
-  --output results/logic_audit/visionrecbench_diverse_v7/summary-gpt-4o.json
+  --output results/logic_audit/visuoself_diverse_v7/summary-gpt-4o.json
 ```
 
 Until every initially correct result has an audit file, the summarizer reports `logic_adjusted_accuracy` as `null` and provides only `logic_adjusted_accuracy_lower_bound`. This prevents a partial run from being mistaken for the final recalculated accuracy. The label `logical_reasoning` is an operational benchmark label: it means that the correct choice was followed by a completely correct structured audit, not that the model's private internal process has been directly observed.
@@ -280,5 +280,5 @@ Until every initially correct result has an audit file, the summarizer reports `
 
 - Render quality is fixed in `source/render_config.py`.
 - Prompt text is fixed in `source/prompts.py` and is shared across all 18 scene/level/test-type combinations.
-- Existing legacy datasets and results are not modified. In particular, `visionrecbench_robust_v1`, `visionrecbench_robust_v3`, `visionrecbench_factorial_v4`, `visionrecbench_diverse_v5`, and `visionrecbench_diverse_v6` represent earlier experimental designs or evidence layouts and should not be combined with `visionrecbench_diverse_v7`.
+- Existing legacy datasets and results are not modified. In particular, `visionrecbench_robust_v1`, `visionrecbench_robust_v3`, `visionrecbench_factorial_v4`, `visionrecbench_diverse_v5`, and `visionrecbench_diverse_v6` represent earlier experimental designs or evidence layouts and should not be combined with `visuoself_diverse_v7`.
 - A change to scene physics, sampling, or evidence construction should produce a newly named frozen dataset rather than overwriting an existing one. A prompt or decoding change must increment the evaluation protocol version and write to a separate result directory.

@@ -12,7 +12,7 @@ from source.dataset_io import validate_dataset  # noqa: E402
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Validate a frozen VisionRecBench dataset and its balance."
+        description="Validate a frozen VisuoSelf dataset and its balance."
     )
     parser.add_argument("dataset", type=Path)
     parser.add_argument(

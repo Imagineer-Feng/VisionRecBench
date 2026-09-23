@@ -40,7 +40,7 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description=(
             "Run a blinded, resumable local web interface for human evaluation "
-            "of a frozen VisionRecBench dataset."
+            "of a frozen VisuoSelf dataset."
         )
     )
     parser.add_argument("--dataset", type=Path, required=True)
@@ -521,7 +521,7 @@ HTML_PAGE = r"""<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>VisionRecBench Human Evaluation</title>
+  <title>VisuoSelf Human Evaluation</title>
   <style>
     :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#e6edf3; --muted:#9da7b3; --accent:#58a6ff; }
     * { box-sizing: border-box; }
@@ -546,7 +546,7 @@ HTML_PAGE = r"""<!doctype html>
   </style>
 </head>
 <body>
-  <header><strong>VisionRecBench Human Evaluation</strong><span id="progress" class="muted">Loading…</span></header>
+  <header><strong>VisuoSelf Human Evaluation</strong><span id="progress" class="muted">Loading…</span></header>
   <main id="content"><div id="message">Loading trial…</div></main>
   <div id="answerBar" hidden><div id="answerInner"><span class="muted">Select an answer:</span><div id="options"></div><button id="submit" disabled>Submit (Enter)</button></div></div>
   <script>

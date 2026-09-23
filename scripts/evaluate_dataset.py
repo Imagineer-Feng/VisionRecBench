@@ -43,7 +43,7 @@ from source.dataset_io import (  # noqa: E402
 def parse_args():
     parser = argparse.ArgumentParser(
         description=(
-            "Evaluate frozen VisionRecBench episodes without starting Isaac Sim."
+            "Evaluate frozen VisuoSelf episodes without starting Isaac Sim."
         )
     )
     parser.add_argument("--dataset", type=Path, required=True)

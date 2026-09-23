@@ -81,7 +81,7 @@ def main():
             "denoiser": RENDER_CONFIG["denoiser"],
         }
     )
-    from source.env import VisionRecBenchEnv
+    from source.env import VisuoSelfEnv
 
     expected_combinations = {
         (template, arm_type, camera_view)
@@ -122,7 +122,7 @@ def main():
             task = apply_render_config(task)
             env = None
             try:
-                env = VisionRecBenchEnv(simulation_app, task)
+                env = VisuoSelfEnv(simulation_app, task)
                 image = env.reset()
                 arm_positions = [
                     arm["articulation"].get_world_pose()[0].tolist()

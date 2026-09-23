@@ -26,7 +26,7 @@ from source.task_logic import (
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 
-class VisionRecBenchEnv:
+class VisuoSelfEnv:
     def __init__(
         self,
         sim_app,

@@ -48,18 +48,18 @@ def parse_args():
     parser = argparse.ArgumentParser(
         allow_abbrev=False,
         description=(
-            "Generate a frozen, model-independent VisionRecBench dataset. "
+            "Generate a frozen, model-independent VisuoSelf dataset. "
             "Run this script with Isaac Sim's python.sh."
         )
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=BASE_DIR / "datasets" / "visionrecbench_diverse_v7",
+        default=BASE_DIR / "datasets" / "visuoself_diverse_v7",
     )
     parser.add_argument(
         "--dataset-name",
-        default="visionrecbench_diverse_v7",
+        default="visuoself_diverse_v7",
     )
     parser.add_argument(
         "--scenario",
@@ -532,7 +532,7 @@ def generate(args, tasks):
             "denoiser": RENDER_CONFIG["denoiser"],
         }
     )
-    from source.env import VisionRecBenchEnv
+    from source.env import VisuoSelfEnv
 
     try:
         for completed_index, sampled_task in enumerate(tasks, start=1):
@@ -566,7 +566,7 @@ def generate(args, tasks):
             task = apply_render_config(copy.deepcopy(sampled_task))
             env = None
             try:
-                env = VisionRecBenchEnv(simulation_app, task)
+                env = VisuoSelfEnv(simulation_app, task)
                 render_episode(env, task, dataset_root)
             finally:
                 if env is not None:

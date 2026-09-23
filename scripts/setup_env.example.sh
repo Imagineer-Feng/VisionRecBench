@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Source this file to set up the environment variables for running the benchmark.
+# Source this file to set up the environment variables for running VisuoSelf.
 # source scripts/setup_env.sh
 
 export OPENAI_API_KEY="${OPENAI_API_KEY:-your_api_key_here}"
